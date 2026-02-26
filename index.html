@@ -165,7 +165,7 @@ const T = {
     namePlaceholder:"Name…", nameRequired:"Each profile needs a name",
     minProfiles:"Add at least one profile",
     manageProfiles:"Manage Profiles", editProfiles:"Edit Profiles", done:"Done",
-    authTitle:"Account Login", authEmail:"Email", authPassword:"Password", authSignIn:"Sign in", authSignUp:"Create account", authSwitchToSignUp:"Need an account? Create one", authSwitchToSignIn:"Have an account? Sign in", authError:"Authentication failed", authConfigMissing:"Firebase Auth is not configured. Enable Authentication and Email/Password provider in Firebase Console.", authInvalidCreds:"Invalid email or password.", authWeakPassword:"Password should be at least 6 characters.",
+    authTitle:"Account Login", authEmail:"Email", authPassword:"Password", authSignIn:"Sign in", authSignUp:"Create account", authSwitchToSignUp:"Need an account? Create one", authSwitchToSignIn:"Have an account? Sign in", authError:"Authentication failed", authConfigMissing:"Firebase Auth is not configured. Enable Authentication and Email/Password provider in Firebase Console.", authInvalidCreds:"Invalid email or password.", authWeakPassword:"Password should be at least 6 characters.", householdAccessDenied:"Could not access this household. Check Firebase Realtime Database rules for /pawsthma/users/$uid and /pawsthma/households/$householdKey.",
     loginCreate:"Access household", loginEnter:"Access household",
     loginSub:"Use this login to load family profiles and cats.",
     householdName:"Household name", login:"Login",
@@ -210,7 +210,7 @@ const T = {
     namePlaceholder:"Nome…", nameRequired:"Cada perfil precisa de um nome",
     minProfiles:"Adiciona pelo menos um perfil",
     manageProfiles:"Gerir Perfis", editProfiles:"Editar Perfis", done:"Concluir",
-    authTitle:"Iniciar sessão", authEmail:"Email", authPassword:"Palavra-passe", authSignIn:"Entrar", authSignUp:"Criar conta", authSwitchToSignUp:"Não tens conta? Cria uma", authSwitchToSignIn:"Já tens conta? Entrar", authError:"Falha na autenticação", authConfigMissing:"O Firebase Auth não está configurado. Ativa Authentication e o método Email/Password na consola Firebase.", authInvalidCreds:"Email ou palavra-passe inválidos.", authWeakPassword:"A palavra-passe deve ter pelo menos 6 caracteres.",
+    authTitle:"Iniciar sessão", authEmail:"Email", authPassword:"Palavra-passe", authSignIn:"Entrar", authSignUp:"Criar conta", authSwitchToSignUp:"Não tens conta? Cria uma", authSwitchToSignIn:"Já tens conta? Entrar", authError:"Falha na autenticação", authConfigMissing:"O Firebase Auth não está configurado. Ativa Authentication e o método Email/Password na consola Firebase.", authInvalidCreds:"Email ou palavra-passe inválidos.", authWeakPassword:"A palavra-passe deve ter pelo menos 6 caracteres.", householdAccessDenied:"Não foi possível aceder a esta casa. Verifica as regras da Realtime Database para /pawsthma/users/$uid e /pawsthma/households/$householdKey.",
     loginCreate:"Aceder à casa", loginEnter:"Aceder à casa",
     loginSub:"Usa este acesso para carregar perfis e gatos da família.",
     householdName:"Nome da casa", login:"Entrar",
@@ -671,7 +671,7 @@ function App(){
       setDeviceHome(deviceId, key);
       setAuthed(true);
       setCatId(null);
-      return true;
+      return { ok:true };
     }
     try {
       let homeData = await fbLoad(key);
@@ -696,10 +696,12 @@ function App(){
       setDeviceHome(deviceId, key);
       setAuthed(true);
       setCatId(null);
-      return true;
+      return { ok:true };
     } catch (err) {
       console.error(err);
-      return false;
+      const msg = `${err?.code||""} ${err?.message||""}`;
+      if(/permission-denied|PERMISSION_DENIED/i.test(msg)) return { ok:false, reason:"permission" };
+      return { ok:false, reason:"unknown" };
     }
   };
 
@@ -731,12 +733,12 @@ function App(){
   );
 
   if(!authed) return e(LoginGate,{lang,setLang,account:user?.email||user?.displayName||"",existing:null,onSubmit:async(payload)=>{
-    const ok=await saveAuth(payload);
-    if(!ok) alert(t.authError);
+    const res=await saveAuth(payload);
+    if(!res.ok) alert(res.reason==="permission"?t.householdAccessDenied:t.authError);
   }});
   if(!currentHome) return e(LoginGate,{lang,setLang,account:user?.email||user?.displayName||"",existing:null,onSubmit:async(payload)=>{
-    const ok=await saveAuth(payload);
-    if(!ok) alert(t.authError);
+    const res=await saveAuth(payload);
+    if(!res.ok) alert(res.reason==="permission"?t.householdAccessDenied:t.authError);
   }});
   if(cats.length===0) return e(CatSetupScreen,{lang,setLang,onSave:async(name)=>{ if(!homeKey) return; const id = `c${Date.now().toString(36).slice(-5)}`; await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:[mkCat(0,name,{id,name})]}}})); setCatId(id); }});
   if(!currentCat) return e(CatPicker,{lang,setLang,cats,onChoose:setCatId,onAdd:async(name)=>{ if(!homeKey) return; const id = `c${Date.now().toString(36).slice(-5)}`; await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:[...d.households[homeKey].cats,mkCat(d.households[homeKey].cats.length,name,{id,name})]}}})); setCatId(id); }});
