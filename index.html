@@ -165,7 +165,7 @@ const T = {
     namePlaceholder:"Name…", nameRequired:"Each profile needs a name",
     minProfiles:"Add at least one profile",
     manageProfiles:"Manage Profiles", editProfiles:"Edit Profiles", done:"Done",
-    authTitle:"Account Login", authEmail:"Email", authPassword:"Password", authSignIn:"Sign in", authSignUp:"Create account", authSwitchToSignUp:"Need an account? Create one", authSwitchToSignIn:"Have an account? Sign in", authError:"Authentication failed", authConfigMissing:"Firebase Auth is not configured. Enable Authentication and Email/Password provider in Firebase Console.", authInvalidCreds:"Invalid email or password.", authWeakPassword:"Password should be at least 6 characters.", householdAccessDenied:"Could not access this household. Check Firebase Realtime Database rules for /pawsthma/users/$uid and /pawsthma/households/$householdKey.",
+    authTitle:"Account Login", authEmail:"Email", authPassword:"Password", authSignIn:"Sign in", authSignUp:"Create account", authSwitchToSignUp:"Need an account? Create one", authSwitchToSignIn:"Have an account? Sign in", authError:"Authentication failed", authConfigMissing:"Firebase Auth is not configured. Enable Authentication and Email/Password provider in Firebase Console.", authInvalidCreds:"Invalid email or password.", authWeakPassword:"Password should be at least 6 characters.", householdAccessDenied:"Could not access this household. Check Firebase Realtime Database rules for /pawsthma/users/$uid and /pawsthma/households/$householdKey.", profileLinking:"Linking your profile to this household…",
     loginCreate:"Access household", loginEnter:"Access household",
     loginSub:"Use this login to load family profiles and cats.",
     householdName:"Household name", login:"Login",
@@ -210,7 +210,7 @@ const T = {
     namePlaceholder:"Nome…", nameRequired:"Cada perfil precisa de um nome",
     minProfiles:"Adiciona pelo menos um perfil",
     manageProfiles:"Gerir Perfis", editProfiles:"Editar Perfis", done:"Concluir",
-    authTitle:"Iniciar sessão", authEmail:"Email", authPassword:"Palavra-passe", authSignIn:"Entrar", authSignUp:"Criar conta", authSwitchToSignUp:"Não tens conta? Cria uma", authSwitchToSignIn:"Já tens conta? Entrar", authError:"Falha na autenticação", authConfigMissing:"O Firebase Auth não está configurado. Ativa Authentication e o método Email/Password na consola Firebase.", authInvalidCreds:"Email ou palavra-passe inválidos.", authWeakPassword:"A palavra-passe deve ter pelo menos 6 caracteres.", householdAccessDenied:"Não foi possível aceder a esta casa. Verifica as regras da Realtime Database para /pawsthma/users/$uid e /pawsthma/households/$householdKey.",
+    authTitle:"Iniciar sessão", authEmail:"Email", authPassword:"Palavra-passe", authSignIn:"Entrar", authSignUp:"Criar conta", authSwitchToSignUp:"Não tens conta? Cria uma", authSwitchToSignIn:"Já tens conta? Entrar", authError:"Falha na autenticação", authConfigMissing:"O Firebase Auth não está configurado. Ativa Authentication e o método Email/Password na consola Firebase.", authInvalidCreds:"Email ou palavra-passe inválidos.", authWeakPassword:"A palavra-passe deve ter pelo menos 6 caracteres.", householdAccessDenied:"Não foi possível aceder a esta casa. Verifica as regras da Realtime Database para /pawsthma/users/$uid e /pawsthma/households/$householdKey.", profileLinking:"A associar o teu perfil a esta casa…",
     loginCreate:"Aceder à casa", loginEnter:"Aceder à casa",
     loginSub:"Usa este acesso para carregar perfis e gatos da família.",
     householdName:"Nome da casa", login:"Entrar",
@@ -728,17 +728,21 @@ function App(){
     if(!homeKey || !user?.uid || !currentHome) return;
     const existing = Array.isArray(currentHome.profiles) ? currentHome.profiles : [];
     if(existing.some(p=>p.id===user.uid)) return;
-    doSave(d=>({
-      ...d,
-      households:{
-        ...d.households,
-        [homeKey]:{
-          ...d.households[homeKey],
-          profiles:[...existing,{ id:user.uid, name:(user?.displayName||user?.email?.split("@")[0]||"User"), emoji:"🧑", color:PCOLS[0] }]
+    doSave(d=>{
+      const latest = Array.isArray(d.households?.[homeKey]?.profiles) ? d.households[homeKey].profiles : [];
+      if(latest.some(p=>p.id===user.uid)) return d;
+      return ({
+        ...d,
+        households:{
+          ...d.households,
+          [homeKey]:{
+            ...d.households[homeKey],
+            profiles:[...latest,{ id:user.uid, name:(user?.displayName||user?.email?.split("@")[0]||"User"), emoji:"🧑", color:PCOLS[0] }]
+          }
         }
-      }
-    }));
-  },[homeKey,user,currentHome]);
+      });
+    });
+  },[homeKey,user?.uid,currentHome]);
 
 
   if(FB_ON && !authReady) return e("div",{style:{background:G.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,color:G.text}},e("div",{style:{fontSize:34}},"🔐"),e("div",{className:"blink",style:{fontSize:13,color:G.muted}},"Loading account…"));
@@ -760,6 +764,7 @@ function App(){
   }});
   if(cats.length===0) return e(CatSetupScreen,{lang,setLang,onSave:async(name)=>{ if(!homeKey) return; const id = `c${Date.now().toString(36).slice(-5)}`; await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:[mkCat(0,name,{id,name})]}}})); setCatId(id); }});
   if(!currentCat) return e(CatPicker,{lang,setLang,cats,onChoose:setCatId,onAdd:async(name)=>{ if(!homeKey) return; const id = `c${Date.now().toString(36).slice(-5)}`; await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:[...d.households[homeKey].cats,mkCat(d.households[homeKey].cats.length,name,{id,name})]}}})); setCatId(id); }});
+  if((!profiles || profiles.length===0) && FB_ON && user?.uid) return e("div",{style:{background:G.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,color:G.text}},e("div",{style:{fontSize:30}},"👤"),e("div",{className:"blink",style:{fontSize:13,color:G.muted}},t.profileLinking));
   if(!profiles || profiles.length===0) return e(SetupScreen,{lang,setLang,onSave:ps=>homeKey&&doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],profiles:ps}}}))});
 
   const attacks=Array.isArray(currentCat.attacks)?currentCat.attacks:[];
