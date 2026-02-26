@@ -54,7 +54,7 @@ import { createRoot } from "https://esm.sh/react-dom@18/client";
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
-} from "https://esm.sh/recharts@2";
+} from "https://esm.sh/recharts@2?deps=react@18.3.1,react-dom@18.3.1";
 
 const FB_ON = FIREBASE_CONFIG.apiKey !== "PASTE_YOUR_API_KEY_HERE";
 let fbLoad = null, fbSave = null, fbSubscribe = null;
@@ -191,6 +191,27 @@ const fmt = (d,lang) => new Date(d).toLocaleDateString(lang==="pt"?"pt-PT":"en-G
 const daysBetween = (a,b) => Math.round((new Date(b)-new Date(a))/86400000);
 const nextId = (arr) => arr.length ? Math.max(...arr.map(x=>x.id))+1 : 1;
 const mkId = () => "p"+Math.random().toString(36).slice(2,7);
+const normProfiles = (profiles) => {
+  if (!Array.isArray(profiles)) return null;
+  return profiles
+    .filter(Boolean)
+    .map((p,idx)=>({
+      id: typeof p.id === "string" && p.id ? p.id : mkId(),
+      name: (p.name||"").toString(),
+      emoji: p.emoji || EMOJIS[idx%EMOJIS.length],
+      color: p.color || PCOLS[idx%PCOLS.length],
+    }));
+};
+const normalizeData = (raw) => {
+  const src = raw && typeof raw === "object" ? raw : {};
+  return {
+    attacks: Array.isArray(src.attacks) ? src.attacks : [],
+    inhalerLogs: Array.isArray(src.inhalerLogs) ? src.inhalerLogs : [],
+    inhalerInfo: { ...DEFAULT.inhalerInfo, ...(src.inhalerInfo || {}) },
+    profiles: normProfiles(src.profiles),
+  };
+};
+
 const IS = (extra={}) => ({width:"100%",padding:"12px 14px",borderRadius:12,border:`1px solid ${G.border}`,color:G.text,fontSize:15,outline:"none",boxSizing:"border-box",background:"rgba(255,255,255,0.04)",...extra});
 
 function EmojiPicker({value,onChange,color}){
@@ -330,10 +351,12 @@ function App(){
         try{
           let remote = await fbLoad();
           if(!remote){ remote={...DEFAULT}; await fbSave(remote); }
-          setData(remote); setIif(remote.inhalerInfo); dr.current=remote;
+          const normalized = normalizeData(remote);
+          setData(normalized); setIif(normalized.inhalerInfo); dr.current=normalized;
           setSync("live"); setLastSt(Date.now());
           fbSubscribe(inc=>{
-            setData(inc); setIif(inc.inhalerInfo); dr.current=inc;
+            const normalized = normalizeData(inc);
+            setData(normalized); setIif(normalized.inhalerInfo); dr.current=normalized;
             setSync("updated"); setLastSt(Date.now());
             setTimeout(()=>setSync("live"),2500);
           });
@@ -343,7 +366,7 @@ function App(){
       }else{ bootLocal(); }
     })();
     function bootLocal(){
-      const saved = lsLoad()||{...DEFAULT};
+      const saved = normalizeData(lsLoad()||{...DEFAULT});
       setData(saved); setIif(saved.inhalerInfo); dr.current=saved;
       setSync("demo");
     }
@@ -377,6 +400,12 @@ function App(){
 
   const profiles=data?.profiles||null;
 
+  useEffect(()=>{
+    if(uid && profiles && !profiles.some(p=>p.id===uid)){
+      setUid(null);
+    }
+  },[uid,profiles]);
+
   if(!data) return e("div",{style:{background:G.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16}},
     e("div",{style:{fontSize:52}},"🐱"),
     e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:700}},"Pawsthma"),
@@ -385,19 +414,21 @@ function App(){
   if(!profiles) return e(SetupScreen,{lang,onSave:ps=>doSave(d=>({...d,profiles:ps}))});
   if(!uid)      return e(UserPicker,{lang,profiles,onChoose:setUid});
 
-  const sorted=[...data.attacks].sort((a,b)=>a.date.localeCompare(b.date));
+  const attacks=Array.isArray(data.attacks)?data.attacks:[];
+  const inhalerLogs=Array.isArray(data.inhalerLogs)?data.inhalerLogs:[];
+  const sorted=[...attacks].sort((a,b)=>a.date.localeCompare(b.date));
   const weekly=(()=>{ const m={}; sorted.forEach(a=>{ const d=new Date(a.date); const w=new Date(d.setDate(d.getDate()-d.getDay())).toISOString().split("T")[0]; if(!m[w])m[w]={label:fmt(w,lang),mild:0,moderate:0,severe:0}; m[w][a.severity]++; }); return Object.values(m).slice(-6); })();
-  const sevDist=(()=>{ const c={mild:0,moderate:0,severe:0}; data.attacks.forEach(a=>c[a.severity]++); return Object.entries(c).map(([n,v])=>({name:n,label:t.sevLabels[n],value:v})).filter(x=>x.value>0); })();
+  const sevDist=(()=>{ const c={mild:0,moderate:0,severe:0}; attacks.forEach(a=>c[a.severity]++); return Object.entries(c).map(([n,v])=>({name:n,label:t.sevLabels[n],value:v})).filter(x=>x.value>0); })();
   const durTrend=sorted.map(a=>({date:fmt(a.date,lang),duration:a.duration}));
   const lastA=sorted[sorted.length-1];
-  const sortedI=[...data.inhalerLogs].sort((a,b)=>a.date.localeCompare(b.date));
+  const sortedI=[...inhalerLogs].sort((a,b)=>a.date.localeCompare(b.date));
   const lastI=sortedI[sortedI.length-1];
   const ds=daysBetween(data.inhalerInfo.lastCleaned,today());
   const overdue=ds>=data.inhalerInfo.cleaningIntervalDays;
   const soon=!overdue&&ds>=data.inhalerInfo.cleaningIntervalDays-3;
-  const avgD=data.attacks.length?(data.attacks.reduce((s,a)=>s+a.duration,0)/data.attacks.length).toFixed(1):0;
-  const sevN=data.attacks.filter(a=>a.severity==="severe").length;
-  const avgB=(data.inhalerLogs.reduce((s,l)=>s+l.breaths,0)/(data.inhalerLogs.length||1)).toFixed(1);
+  const avgD=attacks.length?(attacks.reduce((s,a)=>s+a.duration,0)/attacks.length).toFixed(1):0;
+  const sevN=attacks.filter(a=>a.severity==="severe").length;
+  const avgB=(inhalerLogs.reduce((s,l)=>s+l.breaths,0)/(inhalerLogs.length||1)).toFixed(1);
   const me=profiles.find(p=>p.id===uid);
   const others=profiles.filter(p=>p.id!==uid);
   const myColor=me?.color||G.amber;
