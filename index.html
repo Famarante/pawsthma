@@ -54,7 +54,7 @@ import { createRoot } from "https://esm.sh/react-dom@18/client";
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
-} from "https://esm.sh/recharts@2";
+} from "https://esm.sh/recharts@2?deps=react@18.3.1,react-dom@18.3.1";
 
 const FB_ON = FIREBASE_CONFIG.apiKey !== "PASTE_YOUR_API_KEY_HERE";
 let fbLoad = null, fbSave = null, fbSubscribe = null;
@@ -76,6 +76,10 @@ if (FB_ON) {
 const LS = "pawsthma_v3";
 const lsLoad = () => { try { const v = localStorage.getItem(LS); return v ? JSON.parse(v) : null; } catch { return null; } };
 const lsSave = (d) => { try { localStorage.setItem(LS, JSON.stringify(d)); } catch {} };
+const DEV_HOME = "pawsthma_device_household";
+const devHomeLoad = () => { try { return localStorage.getItem(DEV_HOME); } catch { return null; } };
+const devHomeSave = (k) => { try { localStorage.setItem(DEV_HOME, k); } catch {} };
+const devHomeClear = () => { try { localStorage.removeItem(DEV_HOME); } catch {} };
 
 const G = {
   bg:"#0a0f1e", surface:"rgba(255,255,255,0.04)", border:"rgba(255,255,255,0.09)",
@@ -115,7 +119,7 @@ const T = {
     syncLive:"Live • synced", syncUpdated:"Updated just now",
     syncAgo:(s)=>`Synced ${s}s ago`, syncError:"Sync error",
     syncDemo:"Demo mode — data saved locally only",
-    whoAreYou:"Who are you?", switchProfile:"Switch profile",
+    whoAreYou:"Who are you?", switchProfile:"Switch profile", switchCat:"Switch cat", switchHousehold:"Switch household",
     sharedWith:(n)=>`Synced with ${n} in real time.`,
     setupTitle:"Welcome to Pawsthma",
     setupSub:"Create profiles for everyone tracking your cat's health",
@@ -123,6 +127,12 @@ const T = {
     namePlaceholder:"Name…", nameRequired:"Each profile needs a name",
     minProfiles:"Add at least one profile",
     manageProfiles:"Manage Profiles", editProfiles:"Edit Profiles", done:"Done",
+    loginCreate:"Create household login", loginEnter:"Household login",
+    loginSub:"Use this login to load family profiles and cats.",
+    householdName:"Household name", pin:"PIN", createContinue:"Create & continue", login:"Login",
+    loginNeedHousehold:"Please enter a household name", loginNeedPin:"Please enter a PIN", invalidPin:"Invalid PIN for this household",
+    chooseCat:"Choose your cat", catHistorySub:"Each cat has its own asthma history.", addNewCat:"Add new cat", catName:"Cat name", add:"Add", catCount:(n)=>`${n} attack${n!==1?"s":""}`,
+    firstCatTitle:"Setup your first cat", firstCatSub:"Every household starts by configuring at least one cat.", firstCatRequired:"Please add your first cat name", saveCat:"Save cat",
     demoWarning:"Demo mode: data is only saved on this device. To sync between phones, add your Firebase config.",
   },
   pt: {
@@ -153,7 +163,7 @@ const T = {
     syncLive:"Ao vivo • sincronizado", syncUpdated:"Atualizado agora",
     syncAgo:(s)=>`Sincronizado há ${s}s`, syncError:"Erro de sincronização",
     syncDemo:"Modo demo — dados guardados apenas neste dispositivo",
-    whoAreYou:"Quem és tu?", switchProfile:"Trocar perfil",
+    whoAreYou:"Quem és tu?", switchProfile:"Trocar perfil", switchCat:"Trocar gato", switchHousehold:"Trocar casa",
     sharedWith:(n)=>`Sincronizado com ${n} em tempo real.`,
     setupTitle:"Bem-vindo ao Pawsthma",
     setupSub:"Cria perfis para todos os que vão acompanhar a saúde do teu gato",
@@ -161,6 +171,12 @@ const T = {
     namePlaceholder:"Nome…", nameRequired:"Cada perfil precisa de um nome",
     minProfiles:"Adiciona pelo menos um perfil",
     manageProfiles:"Gerir Perfis", editProfiles:"Editar Perfis", done:"Concluir",
+    loginCreate:"Criar acesso da casa", loginEnter:"Entrar na casa",
+    loginSub:"Usa este acesso para carregar perfis e gatos da família.",
+    householdName:"Nome da casa", pin:"PIN", createContinue:"Criar e continuar", login:"Entrar",
+    loginNeedHousehold:"Introduz o nome da casa", loginNeedPin:"Introduz o PIN", invalidPin:"PIN inválido para esta casa",
+    chooseCat:"Escolhe o teu gato", catHistorySub:"Cada gato tem o seu histórico de asma.", addNewCat:"Adicionar novo gato", catName:"Nome do gato", add:"Adicionar", catCount:(n)=>`${n} crise${n!==1?"s":""}`,
+    firstCatTitle:"Configura o primeiro gato", firstCatSub:"Cada casa começa por configurar pelo menos um gato.", firstCatRequired:"Adiciona o nome do primeiro gato", saveCat:"Guardar gato",
     demoWarning:"Modo demo: os dados são guardados apenas neste dispositivo. Para sincronizar entre telemóveis, adiciona a configuração Firebase.",
   },
 };
@@ -191,6 +207,54 @@ const fmt = (d,lang) => new Date(d).toLocaleDateString(lang==="pt"?"pt-PT":"en-G
 const daysBetween = (a,b) => Math.round((new Date(b)-new Date(a))/86400000);
 const nextId = (arr) => arr.length ? Math.max(...arr.map(x=>x.id))+1 : 1;
 const mkId = () => "p"+Math.random().toString(36).slice(2,7);
+const normProfiles = (profiles) => {
+  if (!Array.isArray(profiles)) return null;
+  return profiles
+    .filter(Boolean)
+    .map((p,idx)=>({
+      id: typeof p.id === "string" && p.id ? p.id : mkId(),
+      name: (p.name||"").toString(),
+      emoji: p.emoji || EMOJIS[idx%EMOJIS.length],
+      color: p.color || PCOLS[idx%PCOLS.length],
+    }));
+};
+const mkCat = (idx,name,data={}) => ({
+  id: data.id || `c${idx+1}`,
+  name: (name || data.name || `Cat ${idx+1}`).toString(),
+  attacks: Array.isArray(data.attacks) ? data.attacks : [],
+  inhalerLogs: Array.isArray(data.inhalerLogs) ? data.inhalerLogs : [],
+  inhalerInfo: { ...DEFAULT.inhalerInfo, ...(data.inhalerInfo || {}) },
+});
+const mkHousehold = (name,data={}) => ({
+  name: (name || data.name || "Home").toString(),
+  pin: (data.pin || "").toString(),
+  profiles: normProfiles(data.profiles),
+  cats: Array.isArray(data.cats) ? data.cats.map((c,idx)=>mkCat(idx,c?.name,c)) : [],
+});
+const householdKey = (name="") => name.toLowerCase().trim().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"") || "home";
+const normalizeData = (raw) => {
+  const src = raw && typeof raw === "object" ? raw : {};
+  const homes = {};
+  if (src.households && typeof src.households === "object") {
+    Object.entries(src.households).forEach(([k,v])=>{ homes[k]=mkHousehold(v?.name||k,v||{}); });
+  } else {
+    const legacyName = (src.auth?.household || "Home").toString();
+    const key = householdKey(legacyName);
+    const legacyCat = mkCat(0, "Milo", src);
+    homes[key] = {
+      name: legacyName,
+      pin: (src.auth?.pin || "").toString(),
+      profiles: normProfiles(src.profiles),
+      cats: Array.isArray(src.cats) && src.cats.length ? src.cats.map((c,idx)=>mkCat(idx,c?.name,c)) : [legacyCat],
+    };
+  }
+  return {
+    households: homes,
+    lastHousehold: src.lastHousehold && homes[src.lastHousehold] ? src.lastHousehold : Object.keys(homes)[0] || "",
+  };
+};
+
+
 const IS = (extra={}) => ({width:"100%",padding:"12px 14px",borderRadius:12,border:`1px solid ${G.border}`,color:G.text,fontSize:15,outline:"none",boxSizing:"border-box",background:"rgba(255,255,255,0.04)",...extra});
 
 function EmojiPicker({value,onChange,color}){
@@ -220,7 +284,13 @@ function ProfileRow({p,onUpdate,onRemove,canRemove}){
   );
 }
 
-function SetupScreen({lang,onSave}){
+function LangToggle({lang,setLang,top=16,right=16}){
+  return e("div",{style:{position:"absolute",top,right,display:"flex",background:"rgba(255,255,255,0.07)",borderRadius:20,padding:3,gap:2,zIndex:5}},
+    ["en","pt"].map(l=>e("button",{key:l,onClick:()=>setLang(l),style:{border:"none",borderRadius:16,padding:"5px 9px",cursor:"pointer",fontSize:11,fontWeight:700,textTransform:"uppercase",background:lang===l?G.amber:"transparent",color:lang===l?"#0a0f1e":G.muted}},l==="en"?"🇬🇧 EN":"🇵🇹 PT"))
+  );
+}
+
+function SetupScreen({lang,setLang,onSave}){
   const t = T[lang];
   const [profiles,setProfiles] = useState([
     {id:mkId(),name:"",emoji:"👨",color:PCOLS[0]},
@@ -236,6 +306,7 @@ function SetupScreen({lang,onSave}){
     onSave(profiles.map(p=>({...p,name:p.name.trim()})));
   };
   return e("div",{style:{background:G.bg,minHeight:"100vh",color:G.text,display:"flex",flexDirection:"column",alignItems:"center",padding:"40px 16px 60px",position:"relative",overflow:"hidden"}},
+    setLang && e(LangToggle,{lang,setLang}),
     e("div",{style:{position:"absolute",top:-80,left:-80,width:360,height:360,borderRadius:"50%",background:"radial-gradient(circle,rgba(245,166,35,0.07),transparent 70%)"}}),
     e("div",{style:{fontSize:44,marginBottom:10}},"🐱"),
     e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:24,fontWeight:700,marginBottom:6,textAlign:"center"}},t.setupTitle),
@@ -274,11 +345,12 @@ function ManageModal({lang,profiles,onSave,onClose}){
   );
 }
 
-function UserPicker({lang,profiles,onChoose}){
+function UserPicker({lang,setLang,profiles,onChoose}){
   const t = T[lang];
   const [hov,setHov] = useState(null);
   const cols = profiles.length<=2?profiles.length:profiles.length<=4?2:3;
   return e("div",{style:{background:G.bg,minHeight:"100vh",color:G.text,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"32px 20px",position:"relative",overflow:"hidden"}},
+    setLang && e(LangToggle,{lang,setLang}),
     e("div",{style:{position:"absolute",top:-80,left:-80,width:360,height:360,borderRadius:"50%",background:"radial-gradient(circle,rgba(245,166,35,0.08),transparent 70%)"}}),
     e("div",{style:{fontSize:46,marginBottom:10}},"🐱"),
     e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:24,fontWeight:700,marginBottom:6}},"Pawsthma"),
@@ -289,6 +361,74 @@ function UserPicker({lang,profiles,onChoose}){
         e("span",{style:{fontSize:38}},p.emoji),
         e("span",{style:{color:hov===p.id?p.color:G.text,fontWeight:700,fontSize:14,textAlign:"center",wordBreak:"break-word"}},p.name)
       ))
+    )
+  );
+}
+
+function LoginGate({lang,setLang,onSubmit,existing}){
+  const t = T[lang];
+  const [household,setHousehold] = useState(existing?.household||"");
+  const [pin,setPin] = useState("");
+  const [err,setErr] = useState(null);
+  const firstTime = !existing?.household;
+  const submit = () => {
+    if(!household.trim()){ setErr(t.loginNeedHousehold); return; }
+    if(!pin.trim()){ setErr(t.loginNeedPin); return; }
+    onSubmit({household:household.trim(), pin:pin.trim(), firstTime});
+  };
+  return e("div",{style:{background:G.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:16,position:"relative"}},
+    setLang && e(LangToggle,{lang,setLang}),
+    e("div",{style:{width:"100%",maxWidth:400,background:G.surface,border:`1px solid ${G.border}`,borderRadius:22,padding:20}},
+      e("div",{style:{fontSize:36,textAlign:"center",marginBottom:8}},"🔐"),
+      e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:24,fontWeight:700,textAlign:"center",marginBottom:8}},firstTime?t.loginCreate:t.loginEnter),
+      e("div",{style:{fontSize:13,color:G.muted,textAlign:"center",marginBottom:16}},t.loginSub),
+      e("div",{style:{marginBottom:12}}, e("input",{value:household,onChange:ev=>{setHousehold(ev.target.value);setErr(null);},placeholder:t.householdName,style:IS()})),
+      e("div",{style:{marginBottom:14}}, e("input",{type:"password",value:pin,onChange:ev=>{setPin(ev.target.value);setErr(null);},placeholder:t.pin,style:IS()})),
+      err && e("div",{style:{fontSize:12,color:G.coral,marginBottom:12}},err),
+      e("button",{onClick:submit,style:{width:"100%",padding:"13px",borderRadius:14,border:"none",background:`linear-gradient(135deg,${G.amber},#e8890c)`,color:"#0a0f1e",fontWeight:700,cursor:"pointer"}}, firstTime?t.createContinue:t.login)
+    )
+  );
+}
+
+function CatPicker({lang,setLang,cats,onChoose,onAdd}){
+  const t = T[lang];
+  const [name,setName] = useState("");
+  return e("div",{style:{background:G.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:16,position:"relative"}},
+    setLang && e(LangToggle,{lang,setLang}),
+    e("div",{style:{width:"100%",maxWidth:430}},
+      e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:25,fontWeight:700,textAlign:"center",marginBottom:8}},t.chooseCat),
+      e("div",{style:{fontSize:13,color:G.muted,textAlign:"center",marginBottom:18}},t.catHistorySub),
+      cats.map((c,idx)=>e("button",{key:c.id,onClick:()=>onChoose(c.id),style:{width:"100%",marginBottom:10,textAlign:"left",padding:"14px 16px",borderRadius:16,border:`1px solid ${G.border}`,background:G.surface,color:G.text,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}},
+        e("span",{style:{display:"flex",alignItems:"center",gap:8}}, e("span",{style:{fontSize:22}},"🐱"), e("span",{style:{fontWeight:600}},c.name||`Cat ${idx+1}`)),
+        e("span",{style:{fontSize:12,color:G.muted}},t.catCount((c.attacks||[]).length))
+      )),
+      e("div",{style:{marginTop:14,padding:12,border:`1px solid ${G.border}`,borderRadius:16,background:G.surface}},
+        e("div",{style:{fontSize:12,color:G.muted,marginBottom:8}},t.addNewCat),
+        e("div",{style:{display:"flex",gap:8}},
+          e("input",{value:name,onChange:ev=>setName(ev.target.value),placeholder:t.catName,style:IS({flex:1})}),
+          e("button",{onClick:()=>{ if(name.trim()){ onAdd(name.trim()); setName(""); } },style:{padding:"0 12px",borderRadius:12,border:"none",background:G.mint,color:"#0a0f1e",fontWeight:700,cursor:"pointer"}},t.add)
+        )
+      )
+    )
+  );
+}
+
+function CatSetupScreen({lang,setLang,onSave}){
+  const t = T[lang];
+  const [name,setName] = useState("");
+  const [err,setErr] = useState(null);
+  const save = ()=>{
+    if(!name.trim()){ setErr(t.firstCatRequired); return; }
+    onSave(name.trim());
+  };
+  return e("div",{style:{background:G.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:16,position:"relative"}},
+    setLang && e(LangToggle,{lang,setLang}),
+    e("div",{style:{width:"100%",maxWidth:420,background:G.surface,border:`1px solid ${G.border}`,borderRadius:20,padding:20}},
+      e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:25,fontWeight:700,textAlign:"center",marginBottom:8}},t.firstCatTitle),
+      e("div",{style:{fontSize:13,color:G.muted,textAlign:"center",marginBottom:14}},t.firstCatSub),
+      e("input",{value:name,onChange:ev=>{setName(ev.target.value);setErr(null);},placeholder:t.catName,style:IS({marginBottom:12})}),
+      err && e("div",{style:{fontSize:12,color:G.coral,marginBottom:10}},err),
+      e("button",{onClick:save,style:{width:"100%",padding:"13px",borderRadius:14,border:"none",background:`linear-gradient(135deg,${G.mint},${G.mint}cc)`,color:"#0a0f1e",fontWeight:700,cursor:"pointer"}},t.saveCat)
     )
   );
 }
@@ -312,6 +452,9 @@ function App(){
   const t = T[lang];
   const [data,setData] = useState(null);
   const [uid,setUid]   = useState(null);
+  const [catId,setCatId] = useState(null);
+  const [authed,setAuthed] = useState(false);
+  const [activeHome,setActiveHome] = useState(null);
   const [sync,setSync] = useState("loading");
   const [secs,setSecs] = useState(0);
   const [lastSt,setLastSt] = useState(null);
@@ -330,10 +473,14 @@ function App(){
         try{
           let remote = await fbLoad();
           if(!remote){ remote={...DEFAULT}; await fbSave(remote); }
-          setData(remote); setIif(remote.inhalerInfo); dr.current=remote;
+          const normalized = normalizeData(remote);
+          setData(normalized); dr.current=normalized;
+          if(normalized.lastHousehold) setActiveHome(normalized.lastHousehold);
           setSync("live"); setLastSt(Date.now());
           fbSubscribe(inc=>{
-            setData(inc); setIif(inc.inhalerInfo); dr.current=inc;
+            const normalized = normalizeData(inc);
+            setData(normalized); dr.current=normalized;
+            if(!activeHome && normalized.lastHousehold) setActiveHome(normalized.lastHousehold);
             setSync("updated"); setLastSt(Date.now());
             setTimeout(()=>setSync("live"),2500);
           });
@@ -343,8 +490,9 @@ function App(){
       }else{ bootLocal(); }
     })();
     function bootLocal(){
-      const saved = lsLoad()||{...DEFAULT};
-      setData(saved); setIif(saved.inhalerInfo); dr.current=saved;
+      const saved = normalizeData(lsLoad()||{...DEFAULT});
+      setData(saved); dr.current=saved;
+      if(saved.lastHousehold) setActiveHome(saved.lastHousehold);
       setSync("demo");
     }
   },[]);
@@ -370,34 +518,115 @@ function App(){
     }else{ lsSave(next); }
   };
 
-  const addAttack=async()=>{ if(!af.duration)return; await doSave(d=>({...d,attacks:[...d.attacks,{...af,id:nextId(d.attacks),duration:Number(af.duration),addedBy:uid}]})); setModal(null); setAf({date:today(),severity:"mild",duration:"",notes:""}); };
-  const addInhaler=async()=>{ await doSave(d=>({...d,inhalerLogs:[...d.inhalerLogs,{...inf,id:nextId(d.inhalerLogs),breaths:Number(inf.breaths),addedBy:uid}]})); setModal(null); };
-  const saveII=()=>doSave(d=>({...d,inhalerInfo:{...iif}}));
-  const saveProfiles=async(ps)=>{ await doSave(d=>({...d,profiles:ps})); setShowMgr(false); };
+  const homes = data?.households || {};
+  const homeKeys = Object.keys(homes);
+  const homeKey = activeHome && homes[activeHome] ? activeHome : (homeKeys[0] || null);
+  const currentHome = homeKey ? homes[homeKey] : null;
 
-  const profiles=data?.profiles||null;
+  useEffect(()=>{
+    if(!data) return;
+    const remembered = devHomeLoad();
+    if(!authed && remembered && homes[remembered]){
+      setActiveHome(remembered);
+      setAuthed(true);
+    }
+    if(remembered && !homes[remembered]) devHomeClear();
+  },[data,homes,authed]);
+
+  useEffect(()=>{
+    if(currentHome){
+      const chosen = currentHome.cats.find(c=>c.id===catId) || currentHome.cats[0] || null;
+      if(chosen){
+        setIif(chosen.inhalerInfo);
+        if(!catId || !currentHome.cats.some(c=>c.id===catId)) setCatId(chosen.id);
+      } else {
+        setCatId(null);
+      }
+    }
+  },[currentHome,catId]);
+
+  const saveAuth = async({household,pin}) => {
+    const key = householdKey(household);
+    const existing = dr.current?.households?.[key];
+    if(existing && existing.pin && existing.pin !== pin) return false;
+    if(existing && !existing.pin){
+      await doSave(d=>({...d,households:{...d.households,[key]:{...d.households[key],pin}}}));
+    }
+    if(!existing){
+      await doSave(d=>({
+        ...d,
+        households:{
+          ...d.households,
+          [key]: mkHousehold(household,{name:household,pin,cats:[],profiles:null}),
+        },
+        lastHousehold:key,
+      }));
+    } else {
+      await doSave(d=>({ ...d, lastHousehold:key }));
+    }
+    setActiveHome(key);
+    devHomeSave(key);
+    setAuthed(true);
+    setUid(null);
+    setCatId(null);
+    return true;
+  };
+
+  const addAttack=async()=>{
+    if(!af.duration || !catId || !homeKey) return;
+    await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:d.households[homeKey].cats.map(c=>c.id===catId?{...c,attacks:[...c.attacks,{...af,id:nextId(c.attacks),duration:Number(af.duration),addedBy:uid}]}:c)}}}));
+    setModal(null); setAf({date:today(),severity:"mild",duration:"",notes:""});
+  };
+  const addInhaler=async()=>{
+    if(!catId || !homeKey) return;
+    await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:d.households[homeKey].cats.map(c=>c.id===catId?{...c,inhalerLogs:[...c.inhalerLogs,{...inf,id:nextId(c.inhalerLogs),breaths:Number(inf.breaths),addedBy:uid}]}:c)}}}));
+    setModal(null);
+  };
+  const saveII=()=> homeKey && catId && doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:d.households[homeKey].cats.map(c=>c.id===catId?{...c,inhalerInfo:{...iif}}:c)}}}));
+  const saveProfiles=async(ps)=>{ if(!homeKey) return; await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],profiles:ps}}})); setShowMgr(false); };
+
+  const profiles=currentHome?.profiles||null;
+  const cats=currentHome?.cats||[];
+  const currentCat=cats.find(c=>c.id===catId)||null;
+
+  useEffect(()=>{
+    if(uid && profiles && !profiles.some(p=>p.id===uid)) setUid(null);
+  },[uid,profiles]);
 
   if(!data) return e("div",{style:{background:G.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16}},
     e("div",{style:{fontSize:52}},"🐱"),
     e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:700}},"Pawsthma"),
     e("div",{className:"blink",style:{fontSize:13,color:G.muted}},"Loading…")
   );
-  if(!profiles) return e(SetupScreen,{lang,onSave:ps=>doSave(d=>({...d,profiles:ps}))});
-  if(!uid)      return e(UserPicker,{lang,profiles,onChoose:setUid});
 
-  const sorted=[...data.attacks].sort((a,b)=>a.date.localeCompare(b.date));
+  if(!authed) return e(LoginGate,{lang,setLang,existing:null,onSubmit:async(payload)=>{
+    const ok=await saveAuth(payload);
+    if(!ok) alert(t.invalidPin);
+  }});
+  if(!currentHome) return e(LoginGate,{lang,setLang,existing:null,onSubmit:async(payload)=>{
+    const ok=await saveAuth(payload);
+    if(!ok) alert(t.invalidPin);
+  }});
+  if(cats.length===0) return e(CatSetupScreen,{lang,setLang,onSave:async(name)=>{ if(!homeKey) return; const id = `c${Date.now().toString(36).slice(-5)}`; await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:[mkCat(0,name,{id,name})]}}})); setCatId(id); }});
+  if(!currentCat) return e(CatPicker,{lang,setLang,cats,onChoose:setCatId,onAdd:async(name)=>{ if(!homeKey) return; const id = `c${Date.now().toString(36).slice(-5)}`; await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:[...d.households[homeKey].cats,mkCat(d.households[homeKey].cats.length,name,{id,name})]}}})); setCatId(id); }});
+  if(!profiles) return e(SetupScreen,{lang,setLang,onSave:ps=>homeKey&&doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],profiles:ps}}}))});
+  if(!uid)      return e(UserPicker,{lang,setLang,profiles,onChoose:setUid});
+
+  const attacks=Array.isArray(currentCat.attacks)?currentCat.attacks:[];
+  const inhalerLogs=Array.isArray(currentCat.inhalerLogs)?currentCat.inhalerLogs:[];
+  const sorted=[...attacks].sort((a,b)=>a.date.localeCompare(b.date));
   const weekly=(()=>{ const m={}; sorted.forEach(a=>{ const d=new Date(a.date); const w=new Date(d.setDate(d.getDate()-d.getDay())).toISOString().split("T")[0]; if(!m[w])m[w]={label:fmt(w,lang),mild:0,moderate:0,severe:0}; m[w][a.severity]++; }); return Object.values(m).slice(-6); })();
-  const sevDist=(()=>{ const c={mild:0,moderate:0,severe:0}; data.attacks.forEach(a=>c[a.severity]++); return Object.entries(c).map(([n,v])=>({name:n,label:t.sevLabels[n],value:v})).filter(x=>x.value>0); })();
+  const sevDist=(()=>{ const c={mild:0,moderate:0,severe:0}; attacks.forEach(a=>c[a.severity]++); return Object.entries(c).map(([n,v])=>({name:n,label:t.sevLabels[n],value:v})).filter(x=>x.value>0); })();
   const durTrend=sorted.map(a=>({date:fmt(a.date,lang),duration:a.duration}));
   const lastA=sorted[sorted.length-1];
-  const sortedI=[...data.inhalerLogs].sort((a,b)=>a.date.localeCompare(b.date));
+  const sortedI=[...inhalerLogs].sort((a,b)=>a.date.localeCompare(b.date));
   const lastI=sortedI[sortedI.length-1];
-  const ds=daysBetween(data.inhalerInfo.lastCleaned,today());
-  const overdue=ds>=data.inhalerInfo.cleaningIntervalDays;
-  const soon=!overdue&&ds>=data.inhalerInfo.cleaningIntervalDays-3;
-  const avgD=data.attacks.length?(data.attacks.reduce((s,a)=>s+a.duration,0)/data.attacks.length).toFixed(1):0;
-  const sevN=data.attacks.filter(a=>a.severity==="severe").length;
-  const avgB=(data.inhalerLogs.reduce((s,l)=>s+l.breaths,0)/(data.inhalerLogs.length||1)).toFixed(1);
+  const ds=daysBetween(currentCat.inhalerInfo.lastCleaned,today());
+  const overdue=ds>=currentCat.inhalerInfo.cleaningIntervalDays;
+  const soon=!overdue&&ds>=currentCat.inhalerInfo.cleaningIntervalDays-3;
+  const avgD=attacks.length?(attacks.reduce((s,a)=>s+a.duration,0)/attacks.length).toFixed(1):0;
+  const sevN=attacks.filter(a=>a.severity==="severe").length;
+  const avgB=(inhalerLogs.reduce((s,l)=>s+l.breaths,0)/(inhalerLogs.length||1)).toFixed(1);
   const me=profiles.find(p=>p.id===uid);
   const others=profiles.filter(p=>p.id!==uid);
   const myColor=me?.color||G.amber;
@@ -422,7 +651,9 @@ function App(){
             e("div",null,
               e("div",{style:{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}},
                 e("span",{style:{fontFamily:"'Playfair Display',serif",fontSize:17,fontWeight:700,lineHeight:1}},"Pawsthma"),
-                e("span",{onClick:()=>setUid(null),title:t.switchProfile,style:{fontSize:9,fontWeight:700,color:myColor,background:`${myColor}18`,border:`1px solid ${myColor}40`,padding:"3px 8px",borderRadius:10,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3}},`${me?.emoji} ${me?.name}`)
+                e("span",{onClick:()=>setUid(null),title:t.switchProfile,style:{fontSize:9,fontWeight:700,color:myColor,background:`${myColor}18`,border:`1px solid ${myColor}40`,padding:"3px 8px",borderRadius:10,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3}},`${me?.emoji} ${me?.name}`),
+                e("span",{onClick:()=>setCatId(null),title:t.switchCat,style:{fontSize:9,fontWeight:700,color:G.mint,background:`${G.mint}18`,border:`1px solid ${G.mint}40`,padding:"3px 8px",borderRadius:10,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3}},`🐱 ${currentCat.name}`),
+                e("span",{onClick:()=>{devHomeClear();setAuthed(false);setUid(null);setCatId(null);},title:t.switchHousehold,style:{fontSize:9,fontWeight:700,color:G.amber,background:`${G.amber}18`,border:`1px solid ${G.amber}40`,padding:"3px 8px",borderRadius:10,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3}},`🏠 ${currentHome?.name||"Home"}`)
               ),
               e("div",{style:{fontSize:9,color:G.muted,letterSpacing:"0.1em",textTransform:"uppercase",marginTop:2}},t.sub)
             )
@@ -456,12 +687,12 @@ function App(){
 
       tab==="dashboard" && e("div",null,
         others.length>0 && e("div",{className:"fu",style:{display:"flex",alignItems:"center",gap:10,background:"rgba(78,205,196,0.06)",border:"1px solid rgba(78,205,196,0.15)",borderRadius:14,padding:"10px 14px",marginBottom:16,fontSize:12,color:G.muted}},e("span",{style:{fontSize:16}},"🔄"),e("span",null,t.sharedWith(others.map(p=>`${p.emoji} ${p.name}`).join(", ")))),
-        (overdue||soon) && e("div",{className:"fu",style:{background:overdue?"rgba(255,107,107,0.12)":"rgba(245,166,35,0.1)",border:`1px solid ${overdue?"rgba(255,107,107,0.3)":G.bBright}`,borderRadius:16,padding:"14px 16px",marginBottom:16,display:"flex",gap:12,alignItems:"center"}},e("span",{style:{fontSize:22}},overdue?"🚨":"⚠️"),e("div",null,e("div",{style:{fontWeight:600,fontSize:13,color:overdue?G.coral:G.amber}},overdue?t.overdueAlert:t.soonAlert),e("div",{style:{fontSize:12,color:G.muted,marginTop:2}},t.daysSince(ds,data.inhalerInfo.cleaningIntervalDays)))),
+        (overdue||soon) && e("div",{className:"fu",style:{background:overdue?"rgba(255,107,107,0.12)":"rgba(245,166,35,0.1)",border:`1px solid ${overdue?"rgba(255,107,107,0.3)":G.bBright}`,borderRadius:16,padding:"14px 16px",marginBottom:16,display:"flex",gap:12,alignItems:"center"}},e("span",{style:{fontSize:22}},overdue?"🚨":"⚠️"),e("div",null,e("div",{style:{fontWeight:600,fontSize:13,color:overdue?G.coral:G.amber}},overdue?t.overdueAlert:t.soonAlert),e("div",{style:{fontSize:12,color:G.muted,marginTop:2}},t.daysSince(ds,currentCat.inhalerInfo.cleaningIntervalDays)))),
         e("div",{className:"fu",style:{animationDelay:"40ms",background:"linear-gradient(135deg,rgba(245,166,35,0.12),rgba(245,166,35,0.04))",border:`1px solid ${G.bBright}`,borderRadius:24,padding:"24px",marginBottom:16,position:"relative",overflow:"hidden"}},
           e("div",{style:{position:"absolute",top:-30,right:-30,width:140,height:140,borderRadius:"50%",background:"radial-gradient(circle,rgba(245,166,35,0.15),transparent 70%)"}}),
           e("div",{style:{fontSize:11,color:G.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}},t.totalAttacks),
-          e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:60,fontWeight:700,color:G.amber,lineHeight:1}},data.attacks.length),
-          e("div",{style:{display:"flex",gap:20,marginTop:16}},["mild","moderate","severe"].map(s=>e("div",{key:s},e("div",{style:{fontSize:20,fontWeight:700,color:SEV[s]}},data.attacks.filter(a=>a.severity===s).length),e("div",{style:{fontSize:10,color:G.muted}},t.sevLabels[s]))))
+          e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:60,fontWeight:700,color:G.amber,lineHeight:1}},attacks.length),
+          e("div",{style:{display:"flex",gap:20,marginTop:16}},["mild","moderate","severe"].map(s=>e("div",{key:s},e("div",{style:{fontSize:20,fontWeight:700,color:SEV[s]}},attacks.filter(a=>a.severity===s).length),e("div",{style:{fontSize:10,color:G.muted}},t.sevLabels[s]))))
         ),
         e("div",{className:"fu",style:{animationDelay:"80ms",display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:20}},
           e("div",{style:card},e("div",{style:{fontSize:10,color:G.muted,textTransform:"uppercase",letterSpacing:"0.08em"}},t.lastAttack),e("div",{style:{fontSize:20,fontWeight:700,marginTop:6}},lastA?fmt(lastA.date,lang):"—"),lastA&&e("div",{style:{display:"flex",gap:6,flexWrap:"wrap",marginTop:8,alignItems:"center"}},e("span",{style:{fontSize:10,fontWeight:700,textTransform:"uppercase",color:SEV[lastA.severity],background:`${SEV[lastA.severity]}18`,padding:"3px 10px",borderRadius:20}},t.sevLabels[lastA.severity]),e(WhoBadge,{addedBy:lastA.addedBy,profiles}))),
@@ -476,13 +707,13 @@ function App(){
         ),
         e("div",{className:"fu",style:{animationDelay:"160ms"}},
           e("div",{style:sec},t.inhalerStatus),
-          e("div",{style:card},e("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}},[[t.dosage,data.inhalerInfo.dosage,null],[t.lastCleaned,fmt(data.inhalerInfo.lastCleaned,lang),null],[t.daysSinceClean,`${ds}${t.d}`,overdue?G.coral:soon?G.amber:G.mint],[t.cleanInterval,`${data.inhalerInfo.cleaningIntervalDays}${t.d}`,null]].map(([label,value,accent])=>e("div",{key:label},e("div",{style:{fontSize:10,color:G.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:4}},label),e("div",{style:{fontSize:15,fontWeight:600,color:accent||G.text}},value)))))
+          e("div",{style:card},e("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}},[[t.dosage,currentCat.inhalerInfo.dosage,null],[t.lastCleaned,fmt(currentCat.inhalerInfo.lastCleaned,lang),null],[t.daysSinceClean,`${ds}${t.d}`,overdue?G.coral:soon?G.amber:G.mint],[t.cleanInterval,`${currentCat.inhalerInfo.cleaningIntervalDays}${t.d}`,null]].map(([label,value,accent])=>e("div",{key:label},e("div",{style:{fontSize:10,color:G.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:4}},label),e("div",{style:{fontSize:15,fontWeight:600,color:accent||G.text}},value)))))
         )
       ),
 
       tab==="attacks" && e("div",null,
-        e("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:20}},e("div",{style:sec},t.attackLog),e("span",{style:{fontSize:12,color:G.muted}},`${data.attacks.length} ${t.total}`)),
-        [...data.attacks].reverse().map((a,i)=>e("div",{key:a.id,className:"fu",style:{animationDelay:`${i*35}ms`,background:G.surface,border:`1px solid ${G.border}`,borderLeft:`3px solid ${SEV[a.severity]}`,borderRadius:16,padding:"14px 16px",marginBottom:10}},
+        e("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:20}},e("div",{style:sec},t.attackLog),e("span",{style:{fontSize:12,color:G.muted}},`${attacks.length} ${t.total}`)),
+        [...attacks].reverse().map((a,i)=>e("div",{key:a.id,className:"fu",style:{animationDelay:`${i*35}ms`,background:G.surface,border:`1px solid ${G.border}`,borderLeft:`3px solid ${SEV[a.severity]}`,borderRadius:16,padding:"14px 16px",marginBottom:10}},
           e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}},
             e("div",{style:{flex:1}},e("div",{style:{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}},e("div",{style:{fontWeight:600,fontSize:15}},fmt(a.date,lang)),e(WhoBadge,{addedBy:a.addedBy,profiles})),e("div",{style:{fontSize:12,color:G.muted,marginTop:4}},`⏱ ${t.duration(a.duration)}`),a.notes&&e("div",{style:{fontSize:12,color:G.sub,marginTop:5,fontStyle:"italic",opacity:0.75}},a.notes)),
             e("span",{style:{fontSize:10,fontWeight:700,textTransform:"uppercase",color:SEV[a.severity],background:`${SEV[a.severity]}18`,padding:"4px 10px",borderRadius:20,letterSpacing:"0.06em",flexShrink:0,marginLeft:8}},t.sevLabels[a.severity])
@@ -496,8 +727,8 @@ function App(){
           [[t.dosage,"dosage","text",t.dosageP],[t.lastCleaned,"lastCleaned","date",""],[t.cleanEvery,"cleaningIntervalDays","number",""]].map(([label,key,type,ph])=>e("div",{key,style:{marginBottom:16}},e("div",{style:lbl},label),e("input",{type,value:iif[key],onChange:ev=>setIif(f=>({...f,[key]:type==="number"?Number(ev.target.value):ev.target.value})),placeholder:ph,style:IS()}))),
           e("button",{onClick:saveII,style:{width:"100%",padding:"14px",borderRadius:14,border:"none",background:`linear-gradient(135deg,${G.mint},${G.mint}cc)`,color:"#0a0f1e",fontWeight:700,fontSize:15,cursor:"pointer"}},t.saveSettings)
         ),
-        e("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:12}},e("div",{style:sec},t.inhalerLog),e("span",{style:{fontSize:12,color:G.muted}},`${data.inhalerLogs.length} ${t.uses}`)),
-        [...data.inhalerLogs].reverse().map((l,i)=>e("div",{key:l.id,className:"fu",style:{animationDelay:`${i*35}ms`,background:G.surface,border:`1px solid ${G.border}`,borderLeft:`3px solid ${G.mint}`,borderRadius:16,padding:"14px 16px",marginBottom:10}},
+        e("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:12}},e("div",{style:sec},t.inhalerLog),e("span",{style:{fontSize:12,color:G.muted}},`${inhalerLogs.length} ${t.uses}`)),
+        [...inhalerLogs].reverse().map((l,i)=>e("div",{key:l.id,className:"fu",style:{animationDelay:`${i*35}ms`,background:G.surface,border:`1px solid ${G.border}`,borderLeft:`3px solid ${G.mint}`,borderRadius:16,padding:"14px 16px",marginBottom:10}},
           e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},e("div",null,e("div",{style:{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}},e("div",{style:{fontWeight:600}},fmt(l.date,lang)),e(WhoBadge,{addedBy:l.addedBy,profiles})),e("div",{style:{fontSize:12,color:G.muted,marginTop:4}},`💨 ${t.breaths(l.breaths)}`)),e("div",{style:{fontSize:13,color:G.mint,fontWeight:600,background:"rgba(78,205,196,0.1)",padding:"4px 12px",borderRadius:20}},l.dosage))
         ))
       ),
@@ -521,7 +752,7 @@ function App(){
         ),
         e("div",{className:"fu",style:{animationDelay:"180ms"}},
           e("div",{style:sec},t.obs),
-          [lastA&&[t.obs1(daysBetween(lastA.date,today()),t.sevLabels[lastA.severity])],[t.obs2(avgD)],sevN>0&&[t.obs3(sevN)],[t.obs4(data.inhalerLogs.length)]].filter(Boolean).map(([text],i)=>
+          [lastA&&[t.obs1(daysBetween(lastA.date,today()),t.sevLabels[lastA.severity])],[t.obs2(avgD)],sevN>0&&[t.obs3(sevN)],[t.obs4(inhalerLogs.length)]].filter(Boolean).map(([text],i)=>
             e("div",{key:i,style:{display:"flex",gap:12,alignItems:"flex-start",background:G.surface,border:`1px solid ${G.border}`,borderRadius:14,padding:"14px 16px",marginBottom:10}},e("span",{style:{fontSize:18,flexShrink:0}},["📅","📈","🔴","💨"][i]),e("span",{style:{fontSize:13,color:G.sub,lineHeight:1.5}},text))
           )
         )
@@ -541,7 +772,7 @@ function App(){
         ),
         modal==="inhaler" && e("div",null,
           e("div",{style:{marginBottom:16}},e("div",{style:lbl},t.date),e("input",{type:"date",value:inf.date,onChange:ev=>setInf(f=>({...f,date:ev.target.value})),style:IS()})),
-          e("div",{style:{marginBottom:16}},e("div",{style:lbl},t.numBreaths),e("div",{style:{display:"flex",gap:8}},[1,2,3,4,5].map(n=>e("button",{key:n,onClick:()=>setInf(f=>({...f,breaths:n})),style:{flex:1,padding:"12px 4px",border:`1.5px solid ${inf.breaths===n?G.mint:"rgba(255,255,255,0.1)"}`,borderRadius:12,background:inf.breaths===n?"rgba(78,205,196,0.15)":"transparent",color:inf.breaths===n?G.mint:G.muted,cursor:"pointer",fontSize:16,fontWeight:700,transition:"all 0.2s"}},n)))),
+          e("div",{style:{marginBottom:16}},e("div",{style:lbl},t.numBreaths),e("div",{style:{display:"flex",gap:8}},[1,2,3,4,5].map(n=>e("button",{key:n,onClick:()=>setInf(f=>({...f,breaths:n})),style:{flex:1,padding:"12px 4px",border:`1.5px solid ${inf.breaths===n?G.mint:"rgba(255,255,255,0.1)"}`,borderRadius:12,background:inf.breaths===n?"rgba(78,205,196,0.15)":"transparent",color:inf.breaths===n?G.mint:G.muted,cursor:"pointer",fontSize:16,fontWeight:700,transition:"all 0.2s"}},n))),e("input",{type:"number",min:1,step:1,value:inf.breaths,onChange:ev=>setInf(f=>({...f,breaths:Math.max(1,Number(ev.target.value)||1)})),style:IS({marginTop:8}),placeholder:t.numBreaths})),
           e("div",{style:{marginBottom:16}},e("div",{style:lbl},t.dosage),e("input",{value:inf.dosage,onChange:ev=>setInf(f=>({...f,dosage:ev.target.value})),placeholder:t.dosageP,style:IS()})),
           e("button",{onClick:addInhaler,style:{width:"100%",padding:"15px",borderRadius:16,border:"none",background:`linear-gradient(135deg,${G.mint},${G.mint}cc)`,color:"#0a0f1e",fontWeight:700,fontSize:15,cursor:"pointer",boxShadow:`0 6px 24px ${G.mint}40`}},t.saveInhaler)
         )
