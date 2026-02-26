@@ -58,17 +58,24 @@ import {
 
 const FB_ON = FIREBASE_CONFIG.apiKey !== "PASTE_YOUR_API_KEY_HERE";
 let fbLoad = null, fbSave = null, fbSubscribe = null;
+let fbAuthObserve = null, fbSignIn = null, fbSignUp = null, fbSignOut = null;
 
 if (FB_ON) {
   try {
     const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js");
     const { getDatabase, ref, get, set, onValue } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js");
+    const { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js");
     const app = initializeApp(FIREBASE_CONFIG);
     const db  = getDatabase(app);
-    const dbRef = ref(db, "pawsthma/data");
-    fbLoad      = async () => { const s = await get(dbRef); return s.val(); };
-    fbSave      = async (d) => { await set(dbRef, d); return true; };
-    fbSubscribe = (cb) => onValue(dbRef, s => { const v = s.val(); if (v) cb(v); });
+    const auth = getAuth(app);
+    const userRef = (uid) => ref(db, `pawsthma/users/${uid}/data`);
+    fbLoad      = async (uid) => { const s = await get(userRef(uid)); return s.val(); };
+    fbSave      = async (uid,d) => { await set(userRef(uid), d); return true; };
+    fbSubscribe = (uid,cb) => onValue(userRef(uid), s => { const v = s.val(); if (v) cb(v); });
+    fbAuthObserve = (cb) => onAuthStateChanged(auth, cb);
+    fbSignIn = async (email,password) => signInWithEmailAndPassword(auth, email, password);
+    fbSignUp = async (email,password) => createUserWithEmailAndPassword(auth, email, password);
+    fbSignOut = async () => signOut(auth);
     console.log("Firebase connected");
   } catch (e) { console.error("Firebase error:", e); }
 }
@@ -155,6 +162,7 @@ const T = {
     namePlaceholder:"Name…", nameRequired:"Each profile needs a name",
     minProfiles:"Add at least one profile",
     manageProfiles:"Manage Profiles", editProfiles:"Edit Profiles", done:"Done",
+    authTitle:"Account Login", authEmail:"Email", authPassword:"Password", authSignIn:"Sign in", authSignUp:"Create account", authSwitchToSignUp:"Need an account? Create one", authSwitchToSignIn:"Have an account? Sign in", authError:"Authentication failed",
     loginCreate:"Create household login", loginEnter:"Household login",
     loginSub:"Use this login to load family profiles and cats.",
     householdName:"Household name", pin:"PIN", createContinue:"Create & continue", login:"Login",
@@ -199,6 +207,7 @@ const T = {
     namePlaceholder:"Nome…", nameRequired:"Cada perfil precisa de um nome",
     minProfiles:"Adiciona pelo menos um perfil",
     manageProfiles:"Gerir Perfis", editProfiles:"Editar Perfis", done:"Concluir",
+    authTitle:"Iniciar sessão", authEmail:"Email", authPassword:"Palavra-passe", authSignIn:"Entrar", authSignUp:"Criar conta", authSwitchToSignUp:"Não tens conta? Cria uma", authSwitchToSignIn:"Já tens conta? Entrar", authError:"Falha na autenticação",
     loginCreate:"Criar acesso da casa", loginEnter:"Entrar na casa",
     loginSub:"Usa este acesso para carregar perfis e gatos da família.",
     householdName:"Nome da casa", pin:"PIN", createContinue:"Criar e continuar", login:"Entrar",
@@ -390,6 +399,31 @@ function UserPicker({lang,setLang,profiles,onChoose}){
   );
 }
 
+function AuthGate({lang,setLang,onAuth}){
+  const t = T[lang];
+  const [email,setEmail] = useState("");
+  const [password,setPassword] = useState("");
+  const [signup,setSignup] = useState(false);
+  const [err,setErr] = useState(null);
+  const submit = async()=>{
+    if(!email.trim()||!password){ setErr(t.authError); return; }
+    const ok = await onAuth(email.trim(),password,signup);
+    if(!ok) setErr(t.authError);
+  };
+  return e("div",{style:{background:G.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:16,position:"relative"}},
+    setLang && e(LangToggle,{lang,setLang}),
+    e("div",{style:{width:"100%",maxWidth:400,background:G.surface,border:`1px solid ${G.border}`,borderRadius:22,padding:20}},
+      e("div",{style:{fontSize:36,textAlign:"center",marginBottom:8}},"🔐"),
+      e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:24,fontWeight:700,textAlign:"center",marginBottom:12}},t.authTitle),
+      e("div",{style:{marginBottom:10}}, e("input",{type:"email",value:email,onChange:ev=>{setEmail(ev.target.value);setErr(null);},placeholder:t.authEmail,style:IS()})),
+      e("div",{style:{marginBottom:12}}, e("input",{type:"password",value:password,onChange:ev=>{setPassword(ev.target.value);setErr(null);},placeholder:t.authPassword,style:IS()})),
+      err && e("div",{style:{fontSize:12,color:G.coral,marginBottom:12}},err),
+      e("button",{onClick:submit,style:{width:"100%",padding:"13px",borderRadius:14,border:"none",background:`linear-gradient(135deg,${G.amber},#e8890c)`,color:"#0a0f1e",fontWeight:700,cursor:"pointer",marginBottom:10}}, signup?t.authSignUp:t.authSignIn),
+      e("button",{onClick:()=>{setSignup(v=>!v);setErr(null);},style:{width:"100%",padding:"9px",background:"transparent",border:"none",color:G.muted,cursor:"pointer",fontSize:12}}, signup?t.authSwitchToSignIn:t.authSwitchToSignUp)
+    )
+  );
+}
+
 function LoginGate({lang,setLang,onSubmit,existing}){
   const t = T[lang];
   const [household,setHousehold] = useState(existing?.household||"");
@@ -479,6 +513,8 @@ function App(){
   const [uid,setUid]   = useState(null);
   const [catId,setCatId] = useState(null);
   const [authed,setAuthed] = useState(false);
+  const [user,setUser] = useState(null);
+  const [authReady,setAuthReady] = useState(!FB_ON);
   const [activeHome,setActiveHome] = useState(null);
   const [sync,setSync] = useState("loading");
   const [secs,setSecs] = useState(0);
@@ -494,15 +530,23 @@ function App(){
   const deviceId = useRef(getOrCreateDeviceId()).current;
 
   useEffect(()=>{
+    if(!FB_ON || !fbAuthObserve) return;
+    const unsub = fbAuthObserve(u=>{ setUser(u||null); setAuthReady(true); if(!u){ setAuthed(false); setUid(null); setCatId(null); } });
+    return ()=>unsub && unsub();
+  },[]);
+
+  useEffect(()=>{
+    if(FB_ON && !authReady) return;
+    let unsub = null;
     (async()=>{
-      if(fbLoad){
+      if(fbLoad && user){
         try{
-          let remote = await fbLoad();
-          if(!remote){ remote={...DEFAULT}; await fbSave(remote); }
+          let remote = await fbLoad(user.uid);
+          if(!remote){ remote={...DEFAULT}; await fbSave(user.uid, remote); }
           const normalized = normalizeData(remote);
           setData(normalized); dr.current=normalized;
           setSync("live"); setLastSt(Date.now());
-          fbSubscribe(inc=>{
+          unsub = fbSubscribe(user.uid, inc=>{
             const normalized = normalizeData(inc);
             setData(normalized); dr.current=normalized;
             setSync("updated"); setLastSt(Date.now());
@@ -518,7 +562,8 @@ function App(){
       setData(saved); dr.current=saved;
       setSync("demo");
     }
-  },[]);
+    return ()=>{ if(unsub) unsub(); };
+  },[user,authReady]);
 
   useEffect(()=>{
     const id=setInterval(()=>{
@@ -533,12 +578,28 @@ function App(){
   const doSave = async(updater)=>{
     const next=updater(dr.current);
     setData(next); dr.current=next;
-    if(fbSave){
+    if(fbSave && user){
       setSync("loading");
-      const ok=await fbSave(next).catch(()=>false);
+      const ok=await fbSave(user.uid, next).catch(()=>false);
       setSync(ok?"live":"error");
       if(ok){setLastSt(Date.now());setSecs(0);}
     }else{ lsSave(next); }
+  };
+
+  const handleUserAuth = async(email,password,signup)=>{
+    if(!fbSignIn||!fbSignUp) return false;
+    try{
+      if(signup) await fbSignUp(email,password);
+      else await fbSignIn(email,password);
+      return true;
+    }catch(err){
+      console.error(err);
+      return false;
+    }
+  };
+  const logoutUser = async()=>{
+    if(fbSignOut) await fbSignOut().catch(()=>null);
+    setAuthed(false); setUid(null); setCatId(null);
   };
 
   const homes = data?.households || {};
@@ -613,6 +674,9 @@ function App(){
     if(uid && profiles && !profiles.some(p=>p.id===uid)) setUid(null);
   },[uid,profiles]);
 
+  if(FB_ON && !authReady) return e("div",{style:{background:G.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,color:G.text}},e("div",{style:{fontSize:34}},"🔐"),e("div",{className:"blink",style:{fontSize:13,color:G.muted}},"Loading account…"));
+  if(FB_ON && authReady && !user) return e(AuthGate,{lang,setLang,onAuth:handleUserAuth});
+
   if(!data) return e("div",{style:{background:G.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16}},
     e("div",{style:{fontSize:52}},"🐱"),
     e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:700}},"Pawsthma"),
@@ -673,13 +737,14 @@ function App(){
                 e("span",{style:{fontFamily:"'Playfair Display',serif",fontSize:17,fontWeight:700,lineHeight:1}},"Pawsthma"),
                 e("span",{onClick:()=>setUid(null),title:t.switchProfile,style:{fontSize:9,fontWeight:700,color:myColor,background:`${myColor}18`,border:`1px solid ${myColor}40`,padding:"3px 8px",borderRadius:10,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3}},`${me?.emoji} ${me?.name}`),
                 e("span",{onClick:()=>setCatId(null),title:t.switchCat,style:{fontSize:9,fontWeight:700,color:G.mint,background:`${G.mint}18`,border:`1px solid ${G.mint}40`,padding:"3px 8px",borderRadius:10,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3}},`🐱 ${currentCat.name}`),
-                e("span",{onClick:()=>{clearDeviceHome(deviceId);setAuthed(false);setUid(null);setCatId(null);},title:t.switchHousehold,style:{fontSize:9,fontWeight:700,color:G.amber,background:`${G.amber}18`,border:`1px solid ${G.amber}40`,padding:"3px 8px",borderRadius:10,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3}},`🏠 ${currentHome?.name||"Home"}`)
+                e("span",{onClick:()=>{clearDeviceHome(deviceId);setAuthed(false);setUid(null);setCatId(null);setActiveHome(null);},title:t.switchHousehold,style:{fontSize:9,fontWeight:700,color:G.amber,background:`${G.amber}18`,border:`1px solid ${G.amber}40`,padding:"3px 8px",borderRadius:10,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3}},`🏠 ${currentHome?.name||"Home"}`)
               ),
               e("div",{style:{fontSize:9,color:G.muted,letterSpacing:"0.1em",textTransform:"uppercase",marginTop:2}},t.sub)
             )
           ),
           e("div",{style:{display:"flex",gap:8,alignItems:"center"}},
             e("button",{onClick:()=>setShowMgr(true),style:{background:"rgba(255,255,255,0.06)",border:`1px solid ${G.border}`,borderRadius:20,padding:"6px 10px",cursor:"pointer",color:G.muted,fontSize:14}},"👥"),
+            FB_ON && e("button",{onClick:logoutUser,title:"Logout",style:{background:"rgba(255,255,255,0.06)",border:`1px solid ${G.border}`,borderRadius:20,padding:"6px 10px",cursor:"pointer",color:G.muted,fontSize:12}},"⎋"),
             e("div",{style:{display:"flex",background:"rgba(255,255,255,0.07)",borderRadius:20,padding:3,gap:2}},
               ["en","pt"].map(l=>e("button",{key:l,onClick:()=>setLang(l),style:{border:"none",borderRadius:16,padding:"5px 9px",cursor:"pointer",fontSize:11,fontWeight:700,textTransform:"uppercase",background:lang===l?G.amber:"transparent",color:lang===l?"#0a0f1e":G.muted}},l==="en"?"🇬🇧 EN":"🇵🇹 PT"))
             )
