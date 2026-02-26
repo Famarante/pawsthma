@@ -218,42 +218,15 @@ const normProfiles = (profiles) => {
       color: p.color || PCOLS[idx%PCOLS.length],
     }));
 };
-const mkCat = (idx,name,data={}) => ({
-  id: data.id || `c${idx+1}`,
-  name: (name || data.name || `Cat ${idx+1}`).toString(),
-  attacks: Array.isArray(data.attacks) ? data.attacks : [],
-  inhalerLogs: Array.isArray(data.inhalerLogs) ? data.inhalerLogs : [],
-  inhalerInfo: { ...DEFAULT.inhalerInfo, ...(data.inhalerInfo || {}) },
-});
-const mkHousehold = (name,data={}) => ({
-  name: (name || data.name || "Home").toString(),
-  pin: (data.pin || "").toString(),
-  profiles: normProfiles(data.profiles),
-  cats: Array.isArray(data.cats) ? data.cats.map((c,idx)=>mkCat(idx,c?.name,c)) : [],
-});
-const householdKey = (name="") => name.toLowerCase().trim().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"") || "home";
 const normalizeData = (raw) => {
   const src = raw && typeof raw === "object" ? raw : {};
-  const homes = {};
-  if (src.households && typeof src.households === "object") {
-    Object.entries(src.households).forEach(([k,v])=>{ homes[k]=mkHousehold(v?.name||k,v||{}); });
-  } else {
-    const legacyName = (src.auth?.household || "Home").toString();
-    const key = householdKey(legacyName);
-    const legacyCat = mkCat(0, "Milo", src);
-    homes[key] = {
-      name: legacyName,
-      pin: (src.auth?.pin || "").toString(),
-      profiles: normProfiles(src.profiles),
-      cats: Array.isArray(src.cats) && src.cats.length ? src.cats.map((c,idx)=>mkCat(idx,c?.name,c)) : [legacyCat],
-    };
-  }
   return {
-    households: homes,
-    lastHousehold: src.lastHousehold && homes[src.lastHousehold] ? src.lastHousehold : Object.keys(homes)[0] || "",
+    attacks: Array.isArray(src.attacks) ? src.attacks : [],
+    inhalerLogs: Array.isArray(src.inhalerLogs) ? src.inhalerLogs : [],
+    inhalerInfo: { ...DEFAULT.inhalerInfo, ...(src.inhalerInfo || {}) },
+    profiles: normProfiles(src.profiles),
   };
 };
-
 
 const IS = (extra={}) => ({width:"100%",padding:"12px 14px",borderRadius:12,border:`1px solid ${G.border}`,color:G.text,fontSize:15,outline:"none",boxSizing:"border-box",background:"rgba(255,255,255,0.04)",...extra});
 
@@ -474,13 +447,11 @@ function App(){
           let remote = await fbLoad();
           if(!remote){ remote={...DEFAULT}; await fbSave(remote); }
           const normalized = normalizeData(remote);
-          setData(normalized); dr.current=normalized;
-          if(normalized.lastHousehold) setActiveHome(normalized.lastHousehold);
+          setData(normalized); setIif(normalized.inhalerInfo); dr.current=normalized;
           setSync("live"); setLastSt(Date.now());
           fbSubscribe(inc=>{
             const normalized = normalizeData(inc);
-            setData(normalized); dr.current=normalized;
-            if(!activeHome && normalized.lastHousehold) setActiveHome(normalized.lastHousehold);
+            setData(normalized); setIif(normalized.inhalerInfo); dr.current=normalized;
             setSync("updated"); setLastSt(Date.now());
             setTimeout(()=>setSync("live"),2500);
           });
@@ -491,8 +462,7 @@ function App(){
     })();
     function bootLocal(){
       const saved = normalizeData(lsLoad()||{...DEFAULT});
-      setData(saved); dr.current=saved;
-      if(saved.lastHousehold) setActiveHome(saved.lastHousehold);
+      setData(saved); setIif(saved.inhalerInfo); dr.current=saved;
       setSync("demo");
     }
   },[]);
@@ -593,27 +563,20 @@ function App(){
     if(uid && profiles && !profiles.some(p=>p.id===uid)) setUid(null);
   },[uid,profiles]);
 
+  useEffect(()=>{
+    if(uid && profiles && !profiles.some(p=>p.id===uid)){
+      setUid(null);
+    }
+  },[uid,profiles]);
+
   if(!data) return e("div",{style:{background:G.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16}},
     e("div",{style:{fontSize:52}},"🐱"),
     e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:700}},"Pawsthma"),
     e("div",{className:"blink",style:{fontSize:13,color:G.muted}},"Loading…")
   );
 
-  if(!authed) return e(LoginGate,{lang,setLang,existing:null,onSubmit:async(payload)=>{
-    const ok=await saveAuth(payload);
-    if(!ok) alert(t.invalidPin);
-  }});
-  if(!currentHome) return e(LoginGate,{lang,setLang,existing:null,onSubmit:async(payload)=>{
-    const ok=await saveAuth(payload);
-    if(!ok) alert(t.invalidPin);
-  }});
-  if(cats.length===0) return e(CatSetupScreen,{lang,setLang,onSave:async(name)=>{ if(!homeKey) return; const id = `c${Date.now().toString(36).slice(-5)}`; await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:[mkCat(0,name,{id,name})]}}})); setCatId(id); }});
-  if(!currentCat) return e(CatPicker,{lang,setLang,cats,onChoose:setCatId,onAdd:async(name)=>{ if(!homeKey) return; const id = `c${Date.now().toString(36).slice(-5)}`; await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:[...d.households[homeKey].cats,mkCat(d.households[homeKey].cats.length,name,{id,name})]}}})); setCatId(id); }});
-  if(!profiles) return e(SetupScreen,{lang,setLang,onSave:ps=>homeKey&&doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],profiles:ps}}}))});
-  if(!uid)      return e(UserPicker,{lang,setLang,profiles,onChoose:setUid});
-
-  const attacks=Array.isArray(currentCat.attacks)?currentCat.attacks:[];
-  const inhalerLogs=Array.isArray(currentCat.inhalerLogs)?currentCat.inhalerLogs:[];
+  const attacks=Array.isArray(data.attacks)?data.attacks:[];
+  const inhalerLogs=Array.isArray(data.inhalerLogs)?data.inhalerLogs:[];
   const sorted=[...attacks].sort((a,b)=>a.date.localeCompare(b.date));
   const weekly=(()=>{ const m={}; sorted.forEach(a=>{ const d=new Date(a.date); const w=new Date(d.setDate(d.getDate()-d.getDay())).toISOString().split("T")[0]; if(!m[w])m[w]={label:fmt(w,lang),mild:0,moderate:0,severe:0}; m[w][a.severity]++; }); return Object.values(m).slice(-6); })();
   const sevDist=(()=>{ const c={mild:0,moderate:0,severe:0}; attacks.forEach(a=>c[a.severity]++); return Object.entries(c).map(([n,v])=>({name:n,label:t.sevLabels[n],value:v})).filter(x=>x.value>0); })();
@@ -621,9 +584,9 @@ function App(){
   const lastA=sorted[sorted.length-1];
   const sortedI=[...inhalerLogs].sort((a,b)=>a.date.localeCompare(b.date));
   const lastI=sortedI[sortedI.length-1];
-  const ds=daysBetween(currentCat.inhalerInfo.lastCleaned,today());
-  const overdue=ds>=currentCat.inhalerInfo.cleaningIntervalDays;
-  const soon=!overdue&&ds>=currentCat.inhalerInfo.cleaningIntervalDays-3;
+  const ds=daysBetween(data.inhalerInfo.lastCleaned,today());
+  const overdue=ds>=data.inhalerInfo.cleaningIntervalDays;
+  const soon=!overdue&&ds>=data.inhalerInfo.cleaningIntervalDays-3;
   const avgD=attacks.length?(attacks.reduce((s,a)=>s+a.duration,0)/attacks.length).toFixed(1):0;
   const sevN=attacks.filter(a=>a.severity==="severe").length;
   const avgB=(inhalerLogs.reduce((s,l)=>s+l.breaths,0)/(inhalerLogs.length||1)).toFixed(1);
