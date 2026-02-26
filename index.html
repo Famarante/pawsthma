@@ -277,14 +277,17 @@ const normalizeData = (raw) => {
   if (src.households && typeof src.households === "object") {
     Object.entries(src.households).forEach(([k,v])=>{ homes[k]=mkHousehold(v?.name||k,v||{}); });
   } else {
-    const legacyName = (src.auth?.household || "Home").toString();
-    const key = householdKey(legacyName);
-    const legacyCat = mkCat(0, "Milo", src);
-    homes[key] = {
-      name: legacyName,
-      profiles: normProfiles(src.profiles),
-      cats: Array.isArray(src.cats) && src.cats.length ? src.cats.map((c,idx)=>mkCat(idx,c?.name,c)) : [legacyCat],
-    };
+    const hasLegacyPayload = ["attacks","inhalerLogs","inhalerInfo","profiles","auth","cats"].some(k=>k in src);
+    if (hasLegacyPayload) {
+      const legacyName = (src.auth?.household || "Home").toString();
+      const key = householdKey(legacyName);
+      const legacyCat = mkCat(0, "Milo", src);
+      homes[key] = {
+        name: legacyName,
+        profiles: normProfiles(src.profiles),
+        cats: Array.isArray(src.cats) && src.cats.length ? src.cats.map((c,idx)=>mkCat(idx,c?.name,c)) : [legacyCat],
+      };
+    }
   }
   return { households: homes };
 };
@@ -572,7 +575,11 @@ function App(){
     (async()=>{
       try{
         let remote = await fbLoad(activeHome);
-        if(!remote){ remote=normalizeData({...DEFAULT}); await fbSave(activeHome, remote); }
+        if(!remote){
+          const selfProfile = { id:user?.uid||mkId(), name:(user?.displayName||user?.email?.split("@")[0]||"User"), emoji:"🧑", color:PCOLS[0] };
+          remote = { households:{ [activeHome]: { ...mkHousehold(activeHome,{name:activeHome,cats:[],profiles:null}), profiles:[selfProfile] } } };
+          await fbSave(activeHome, remote);
+        }
         const normalized = normalizeData(remote);
         setData(normalized); dr.current=normalized;
         setSync("live"); setLastSt(Date.now());
