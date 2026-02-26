@@ -258,6 +258,12 @@ const normProfiles = (profiles) => {
       color: p.color || PCOLS[idx%PCOLS.length],
     }));
 };
+const normMembers = (members) => {
+  if (!Array.isArray(members)) return [];
+  return members
+    .map((m)=>typeof m === "string" ? m : m?.uid)
+    .filter((uid)=>typeof uid === "string" && uid.trim());
+};
 const mkCat = (idx,name,data={}) => ({
   id: data.id || `c${idx+1}`,
   name: (name || data.name || `Cat ${idx+1}`).toString(),
@@ -265,11 +271,17 @@ const mkCat = (idx,name,data={}) => ({
   inhalerLogs: Array.isArray(data.inhalerLogs) ? data.inhalerLogs : [],
   inhalerInfo: { ...DEFAULT.inhalerInfo, ...(data.inhalerInfo || {}) },
 });
-const mkHousehold = (name,data={}) => ({
-  name: (name || data.name || "Home").toString(),
-  profiles: normProfiles(data.profiles),
-  cats: Array.isArray(data.cats) ? data.cats.map((c,idx)=>mkCat(idx,c?.name,c)) : [],
-});
+const mkHousehold = (name,data={}) => {
+  const profiles = normProfiles(data.profiles);
+  const profileIds = Array.isArray(profiles) ? profiles.map(p=>p?.id).filter(Boolean) : [];
+  const members = normMembers(data.members);
+  return ({
+    name: (name || data.name || "Home").toString(),
+    profiles,
+    members: members.length ? members : profileIds,
+    cats: Array.isArray(data.cats) ? data.cats.map((c,idx)=>mkCat(idx,c?.name,c)) : [],
+  });
+};
 const householdKey = (name="") => name.toLowerCase().trim().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"") || "home";
 const normalizeData = (raw) => {
   const src = raw && typeof raw === "object" ? raw : {};
@@ -550,7 +562,9 @@ function App(){
       if(fbLoadUserMeta && user){
         try{
           const meta = await fbLoadUserMeta(user.uid) || {};
-          const linkedHomes = Array.isArray(meta.households) ? meta.households : [];
+          const linkedHomes = Array.isArray(meta.households)
+            ? meta.households
+            : (meta.households && typeof meta.households === "object" ? Object.keys(meta.households) : []);
           setUid(user.uid);
           setUserHomes(linkedHomes);
           const remembered = getDeviceHome(deviceId);
@@ -674,10 +688,27 @@ function App(){
   const saveAuth = async({household}) => {
     const key = householdKey(household);
     const profile = { id:user?.uid||mkId(), name:(user?.displayName||user?.email?.split("@")[0]||"User"), emoji:"🧑", color:PCOLS[0] };
+    const memberUid = user?.uid || profile.id;
     if(!FB_ON || !fbLoad){
       const existing = dr.current?.households?.[key];
       if(!existing){
-        await doSave(d=>({ ...d, households:{...d.households,[key]:{ ...mkHousehold(household,{name:household,cats:[],profiles:null}), profiles:[profile] }} }));
+        await doSave(d=>({ ...d, households:{...d.households,[key]:{ ...mkHousehold(household,{name:household,cats:[],profiles:null,members:[memberUid]}), profiles:[profile], members:[memberUid] }} }));
+      } else {
+        await doSave(d=>{
+          const home = d.households?.[key];
+          if(!home) return d;
+          const profiles = Array.isArray(home.profiles) ? home.profiles : [];
+          const members = Array.isArray(home.members) ? home.members : [];
+          const nextProfiles = profiles.some(p=>p.id===profile.id) ? profiles : [...profiles, profile];
+          const nextMembers = members.includes(memberUid) ? members : [...members, memberUid];
+          return ({
+            ...d,
+            households:{
+              ...d.households,
+              [key]:{ ...home, profiles:nextProfiles, members:nextMembers }
+            }
+          });
+        });
       }
       setActiveHome(key);
       setDeviceHome(deviceId, key);
@@ -688,20 +719,23 @@ function App(){
     try {
       let homeData = await fbLoad(key);
       if(!homeData){
-        homeData = { households:{ [key]: { ...mkHousehold(household,{name:household,cats:[],profiles:null}), profiles:[profile] } } };
+        homeData = { households:{ [key]: { ...mkHousehold(household,{name:household,cats:[],profiles:null,members:[memberUid]}), profiles:[profile], members:[memberUid] } } };
         await fbSave(key, homeData);
       } else {
         const normalized = normalizeData(homeData);
         const existing = normalized.households?.[key] || mkHousehold(household,{name:household,cats:[],profiles:null});
         const hasProfile = Array.isArray(existing.profiles) && existing.profiles.some(p=>p.id===profile.id);
-        if(!hasProfile){
-          existing.profiles = [ ...(existing.profiles || []), profile ];
+        const hasMember = Array.isArray(existing.members) && existing.members.includes(memberUid);
+        if(!hasProfile || !hasMember){
+          existing.profiles = hasProfile ? (existing.profiles || []) : [ ...(existing.profiles || []), profile ];
+          existing.members = hasMember ? (existing.members || []) : [ ...(existing.members || []), memberUid ];
           await fbSave(key, { households:{ [key]: existing } });
         }
       }
       if(fbSaveUserMeta && user?.uid){
         const nextHomes = Array.from(new Set([...(userHomes||[]), key]));
-        await fbSaveUserMeta(user.uid, { households: nextHomes });
+        const householdsByKey = nextHomes.reduce((acc,h)=>{ acc[h]=true; return acc; }, {});
+        await fbSaveUserMeta(user.uid, { households: householdsByKey });
         setUserHomes(nextHomes);
       }
       setActiveHome(key);
@@ -739,17 +773,20 @@ function App(){
   useEffect(()=>{
     if(!homeKey || !user?.uid || !currentHome) return;
     const existing = Array.isArray(currentHome.profiles) ? currentHome.profiles : [];
-    if(existing.some(p=>p.id===user.uid)) return;
+    const existingMembers = Array.isArray(currentHome.members) ? currentHome.members : [];
+    if(existing.some(p=>p.id===user.uid) && existingMembers.includes(user.uid)) return;
     doSave(d=>{
       const latest = Array.isArray(d.households?.[homeKey]?.profiles) ? d.households[homeKey].profiles : [];
-      if(latest.some(p=>p.id===user.uid)) return d;
+      const latestMembers = Array.isArray(d.households?.[homeKey]?.members) ? d.households[homeKey].members : [];
+      if(latest.some(p=>p.id===user.uid) && latestMembers.includes(user.uid)) return d;
       return ({
         ...d,
         households:{
           ...d.households,
           [homeKey]:{
             ...d.households[homeKey],
-            profiles:[...latest,{ id:user.uid, name:(user?.displayName||user?.email?.split("@")[0]||"User"), emoji:"🧑", color:PCOLS[0] }]
+            profiles: latest.some(p=>p.id===user.uid) ? latest : [...latest,{ id:user.uid, name:(user?.displayName||user?.email?.split("@")[0]||"User"), emoji:"🧑", color:PCOLS[0] }],
+            members: latestMembers.includes(user.uid) ? latestMembers : [...latestMembers, user.uid]
           }
         }
       });
