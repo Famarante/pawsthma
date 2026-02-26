@@ -76,6 +76,10 @@ if (FB_ON) {
 const LS = "pawsthma_v3";
 const lsLoad = () => { try { const v = localStorage.getItem(LS); return v ? JSON.parse(v) : null; } catch { return null; } };
 const lsSave = (d) => { try { localStorage.setItem(LS, JSON.stringify(d)); } catch {} };
+const DEV_HOME = "pawsthma_device_household";
+const devHomeLoad = () => { try { return localStorage.getItem(DEV_HOME); } catch { return null; } };
+const devHomeSave = (k) => { try { localStorage.setItem(DEV_HOME, k); } catch {} };
+const devHomeClear = () => { try { localStorage.removeItem(DEV_HOME); } catch {} };
 
 const G = {
   bg:"#0a0f1e", surface:"rgba(255,255,255,0.04)", border:"rgba(255,255,255,0.09)",
@@ -520,6 +524,16 @@ function App(){
   const currentHome = homeKey ? homes[homeKey] : null;
 
   useEffect(()=>{
+    if(!data) return;
+    const remembered = devHomeLoad();
+    if(!authed && remembered && homes[remembered]){
+      setActiveHome(remembered);
+      setAuthed(true);
+    }
+    if(remembered && !homes[remembered]) devHomeClear();
+  },[data,homes,authed]);
+
+  useEffect(()=>{
     if(currentHome){
       const chosen = currentHome.cats.find(c=>c.id===catId) || currentHome.cats[0] || null;
       if(chosen){
@@ -551,6 +565,7 @@ function App(){
       await doSave(d=>({ ...d, lastHousehold:key }));
     }
     setActiveHome(key);
+    devHomeSave(key);
     setAuthed(true);
     setUid(null);
     setCatId(null);
@@ -638,7 +653,7 @@ function App(){
                 e("span",{style:{fontFamily:"'Playfair Display',serif",fontSize:17,fontWeight:700,lineHeight:1}},"Pawsthma"),
                 e("span",{onClick:()=>setUid(null),title:t.switchProfile,style:{fontSize:9,fontWeight:700,color:myColor,background:`${myColor}18`,border:`1px solid ${myColor}40`,padding:"3px 8px",borderRadius:10,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3}},`${me?.emoji} ${me?.name}`),
                 e("span",{onClick:()=>setCatId(null),title:"Switch cat",style:{fontSize:9,fontWeight:700,color:G.mint,background:`${G.mint}18`,border:`1px solid ${G.mint}40`,padding:"3px 8px",borderRadius:10,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3}},`🐱 ${currentCat.name}`),
-                e("span",{onClick:()=>{setAuthed(false);setUid(null);setCatId(null);},title:"Switch household",style:{fontSize:9,fontWeight:700,color:G.amber,background:`${G.amber}18`,border:`1px solid ${G.amber}40`,padding:"3px 8px",borderRadius:10,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3}},`🏠 ${currentHome?.name||"Home"}`)
+                e("span",{onClick:()=>{devHomeClear();setAuthed(false);setUid(null);setCatId(null);},title:"Switch household",style:{fontSize:9,fontWeight:700,color:G.amber,background:`${G.amber}18`,border:`1px solid ${G.amber}40`,padding:"3px 8px",borderRadius:10,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3}},`🏠 ${currentHome?.name||"Home"}`)
               ),
               e("div",{style:{fontSize:9,color:G.muted,letterSpacing:"0.1em",textTransform:"uppercase",marginTop:2}},t.sub)
             )
