@@ -57,21 +57,24 @@ import {
 } from "https://esm.sh/recharts@2?deps=react@18.3.1,react-dom@18.3.1";
 
 const FB_ON = FIREBASE_CONFIG.apiKey !== "PASTE_YOUR_API_KEY_HERE";
-let fbLoad = null, fbSave = null, fbSubscribe = null;
+let fbLoad = null, fbSave = null, fbSubscribe = null, fbLoadUserMeta = null, fbSaveUserMeta = null;
 let fbAuthObserve = null, fbSignIn = null, fbSignUp = null, fbSignOut = null;
 
 if (FB_ON) {
   try {
     const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js");
-    const { getDatabase, ref, get, set, onValue } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js");
+    const { getDatabase, ref, get, set, onValue, update } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js");
     const { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js");
     const app = initializeApp(FIREBASE_CONFIG);
     const db  = getDatabase(app);
     const auth = getAuth(app);
-    const userRef = (uid) => ref(db, `pawsthma/users/${uid}/data`);
-    fbLoad      = async (uid) => { const s = await get(userRef(uid)); return s.val(); };
-    fbSave      = async (uid,d) => { await set(userRef(uid), d); return true; };
-    fbSubscribe = (uid,cb) => onValue(userRef(uid), s => { const v = s.val(); if (v) cb(v); });
+    const userRef = (uid) => ref(db, `pawsthma/users/${uid}`);
+    const homeRef = (key) => ref(db, `pawsthma/households/${key}`);
+    fbLoadUserMeta = async (uid) => { const s = await get(userRef(uid)); return s.val(); };
+    fbSaveUserMeta = async (uid, meta) => { await update(userRef(uid), meta); return true; };
+    fbLoad      = async (key) => { const s = await get(homeRef(key)); return s.val(); };
+    fbSave      = async (key,d) => { await set(homeRef(key), d); return true; };
+    fbSubscribe = (key,cb) => onValue(homeRef(key), s => { const v = s.val(); if (v) cb(v); });
     fbAuthObserve = (cb) => onAuthStateChanged(auth, cb);
     fbSignIn = async (email,password) => signInWithEmailAndPassword(auth, email, password);
     fbSignUp = async (email,password) => createUserWithEmailAndPassword(auth, email, password);
@@ -163,10 +166,10 @@ const T = {
     minProfiles:"Add at least one profile",
     manageProfiles:"Manage Profiles", editProfiles:"Edit Profiles", done:"Done",
     authTitle:"Account Login", authEmail:"Email", authPassword:"Password", authSignIn:"Sign in", authSignUp:"Create account", authSwitchToSignUp:"Need an account? Create one", authSwitchToSignIn:"Have an account? Sign in", authError:"Authentication failed", authConfigMissing:"Firebase Auth is not configured. Enable Authentication and Email/Password provider in Firebase Console.", authInvalidCreds:"Invalid email or password.", authWeakPassword:"Password should be at least 6 characters.",
-    loginCreate:"Create household login", loginEnter:"Household login",
+    loginCreate:"Access household", loginEnter:"Access household",
     loginSub:"Use this login to load family profiles and cats.",
-    householdName:"Household name", pin:"PIN", createContinue:"Create & continue", login:"Login",
-    loginNeedHousehold:"Please enter a household name", loginNeedPin:"Please enter a PIN", invalidPin:"Invalid PIN for this household",
+    householdName:"Household name", login:"Login",
+    loginNeedHousehold:"Please enter a household name",
     chooseCat:"Choose your cat", catHistorySub:"Each cat has its own asthma history.", addNewCat:"Add new cat", catName:"Cat name", add:"Add", catCount:(n)=>`${n} attack${n!==1?"s":""}`,
     firstCatTitle:"Setup your first cat", firstCatSub:"Every household starts by configuring at least one cat.", firstCatRequired:"Please add your first cat name", saveCat:"Save cat",
     demoWarning:"Demo mode: data is only saved on this device. To sync between phones, add your Firebase config.",
@@ -208,10 +211,10 @@ const T = {
     minProfiles:"Adiciona pelo menos um perfil",
     manageProfiles:"Gerir Perfis", editProfiles:"Editar Perfis", done:"Concluir",
     authTitle:"Iniciar sessão", authEmail:"Email", authPassword:"Palavra-passe", authSignIn:"Entrar", authSignUp:"Criar conta", authSwitchToSignUp:"Não tens conta? Cria uma", authSwitchToSignIn:"Já tens conta? Entrar", authError:"Falha na autenticação", authConfigMissing:"O Firebase Auth não está configurado. Ativa Authentication e o método Email/Password na consola Firebase.", authInvalidCreds:"Email ou palavra-passe inválidos.", authWeakPassword:"A palavra-passe deve ter pelo menos 6 caracteres.",
-    loginCreate:"Criar acesso da casa", loginEnter:"Entrar na casa",
+    loginCreate:"Aceder à casa", loginEnter:"Aceder à casa",
     loginSub:"Usa este acesso para carregar perfis e gatos da família.",
-    householdName:"Nome da casa", pin:"PIN", createContinue:"Criar e continuar", login:"Entrar",
-    loginNeedHousehold:"Introduz o nome da casa", loginNeedPin:"Introduz o PIN", invalidPin:"PIN inválido para esta casa",
+    householdName:"Nome da casa", login:"Entrar",
+    loginNeedHousehold:"Introduz o nome da casa",
     chooseCat:"Escolhe o teu gato", catHistorySub:"Cada gato tem o seu histórico de asma.", addNewCat:"Adicionar novo gato", catName:"Nome do gato", add:"Adicionar", catCount:(n)=>`${n} crise${n!==1?"s":""}`,
     firstCatTitle:"Configura o primeiro gato", firstCatSub:"Cada casa começa por configurar pelo menos um gato.", firstCatRequired:"Adiciona o nome do primeiro gato", saveCat:"Guardar gato",
     demoWarning:"Modo demo: os dados são guardados apenas neste dispositivo. Para sincronizar entre telemóveis, adiciona a configuração Firebase.",
@@ -264,7 +267,6 @@ const mkCat = (idx,name,data={}) => ({
 });
 const mkHousehold = (name,data={}) => ({
   name: (name || data.name || "Home").toString(),
-  pin: (data.pin || "").toString(),
   profiles: normProfiles(data.profiles),
   cats: Array.isArray(data.cats) ? data.cats.map((c,idx)=>mkCat(idx,c?.name,c)) : [],
 });
@@ -280,7 +282,6 @@ const normalizeData = (raw) => {
     const legacyCat = mkCat(0, "Milo", src);
     homes[key] = {
       name: legacyName,
-      pin: (src.auth?.pin || "").toString(),
       profiles: normProfiles(src.profiles),
       cats: Array.isArray(src.cats) && src.cats.length ? src.cats.map((c,idx)=>mkCat(idx,c?.name,c)) : [legacyCat],
     };
@@ -427,24 +428,20 @@ function AuthGate({lang,setLang,onAuth}){
 function LoginGate({lang,setLang,onSubmit,existing}){
   const t = T[lang];
   const [household,setHousehold] = useState(existing?.household||"");
-  const [pin,setPin] = useState("");
   const [err,setErr] = useState(null);
-  const firstTime = !existing?.household;
   const submit = () => {
     if(!household.trim()){ setErr(t.loginNeedHousehold); return; }
-    if(!pin.trim()){ setErr(t.loginNeedPin); return; }
-    onSubmit({household:household.trim(), pin:pin.trim(), firstTime});
+    onSubmit({household:household.trim()});
   };
   return e("div",{style:{background:G.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:16,position:"relative"}},
     setLang && e(LangToggle,{lang,setLang}),
     e("div",{style:{width:"100%",maxWidth:400,background:G.surface,border:`1px solid ${G.border}`,borderRadius:22,padding:20}},
       e("div",{style:{fontSize:36,textAlign:"center",marginBottom:8}},"🔐"),
-      e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:24,fontWeight:700,textAlign:"center",marginBottom:8}},firstTime?t.loginCreate:t.loginEnter),
+      e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:24,fontWeight:700,textAlign:"center",marginBottom:8}},t.loginEnter),
       e("div",{style:{fontSize:13,color:G.muted,textAlign:"center",marginBottom:16}},t.loginSub),
       e("div",{style:{marginBottom:12}}, e("input",{value:household,onChange:ev=>{setHousehold(ev.target.value);setErr(null);},placeholder:t.householdName,style:IS()})),
-      e("div",{style:{marginBottom:14}}, e("input",{type:"password",value:pin,onChange:ev=>{setPin(ev.target.value);setErr(null);},placeholder:t.pin,style:IS()})),
       err && e("div",{style:{fontSize:12,color:G.coral,marginBottom:12}},err),
-      e("button",{onClick:submit,style:{width:"100%",padding:"13px",borderRadius:14,border:"none",background:`linear-gradient(135deg,${G.amber},#e8890c)`,color:"#0a0f1e",fontWeight:700,cursor:"pointer"}}, firstTime?t.createContinue:t.login)
+      e("button",{onClick:submit,style:{width:"100%",padding:"13px",borderRadius:14,border:"none",background:`linear-gradient(135deg,${G.amber},#e8890c)`,color:"#0a0f1e",fontWeight:700,cursor:"pointer"}}, t.login)
     )
   );
 }
@@ -514,6 +511,7 @@ function App(){
   const [catId,setCatId] = useState(null);
   const [authed,setAuthed] = useState(false);
   const [user,setUser] = useState(null);
+  const [userHomes,setUserHomes] = useState([]);
   const [authReady,setAuthReady] = useState(!FB_ON);
   const [activeHome,setActiveHome] = useState(null);
   const [sync,setSync] = useState("loading");
@@ -535,35 +533,61 @@ function App(){
     return ()=>unsub && unsub();
   },[]);
 
+  useEffect(()=>{ if(user?.uid) setUid(user.uid); },[user]);
+
   useEffect(()=>{
     if(FB_ON && !authReady) return;
+    (async()=>{
+      if(fbLoadUserMeta && user){
+        try{
+          const meta = await fbLoadUserMeta(user.uid) || {};
+          const linkedHomes = Array.isArray(meta.households) ? meta.households : [];
+          setUid(user.uid);
+          setUserHomes(linkedHomes);
+          const remembered = getDeviceHome(deviceId);
+          const initialHome = linkedHomes.includes(remembered) ? remembered : (linkedHomes[0] || null);
+          setActiveHome(initialHome);
+          setAuthed(!!initialHome);
+          if(initialHome) setDeviceHome(deviceId, initialHome);
+          if(!initialHome){
+            const empty = { households:{} };
+            setData(empty); dr.current=empty;
+            setSync("live"); setLastSt(Date.now());
+          }
+        }catch(err){
+          console.error(err);
+        }
+      }else{
+        const saved = normalizeData(lsLoad()||{...DEFAULT});
+        setData(saved); dr.current=saved;
+        setSync("demo");
+      }
+    })();
+  },[user,authReady,deviceId]);
+
+  useEffect(()=>{
+    if(!FB_ON || !fbLoad || !activeHome) return;
     let unsub = null;
     (async()=>{
-      if(fbLoad && user){
-        try{
-          let remote = await fbLoad(user.uid);
-          if(!remote){ remote={...DEFAULT}; await fbSave(user.uid, remote); }
-          const normalized = normalizeData(remote);
-          setData(normalized); dr.current=normalized;
-          setSync("live"); setLastSt(Date.now());
-          unsub = fbSubscribe(user.uid, inc=>{
-            const normalized = normalizeData(inc);
-            setData(normalized); dr.current=normalized;
-            setSync("updated"); setLastSt(Date.now());
-            setTimeout(()=>setSync("live"),2500);
-          });
-        }catch(err){
-          console.error(err); bootLocal();
-        }
-      }else{ bootLocal(); }
+      try{
+        let remote = await fbLoad(activeHome);
+        if(!remote){ remote=normalizeData({...DEFAULT}); await fbSave(activeHome, remote); }
+        const normalized = normalizeData(remote);
+        setData(normalized); dr.current=normalized;
+        setSync("live"); setLastSt(Date.now());
+        unsub = fbSubscribe(activeHome, inc=>{
+          const n = normalizeData(inc);
+          setData(n); dr.current=n;
+          setSync("updated"); setLastSt(Date.now());
+          setTimeout(()=>setSync("live"),2500);
+        });
+      } catch(err){
+        console.error(err);
+        setSync("error");
+      }
     })();
-    function bootLocal(){
-      const saved = normalizeData(lsLoad()||{...DEFAULT});
-      setData(saved); dr.current=saved;
-      setSync("demo");
-    }
     return ()=>{ if(unsub) unsub(); };
-  },[user,authReady]);
+  },[activeHome]);
 
   useEffect(()=>{
     const id=setInterval(()=>{
@@ -580,7 +604,7 @@ function App(){
     setData(next); dr.current=next;
     if(fbSave && user){
       setSync("loading");
-      const ok=await fbSave(user.uid, next).catch(()=>false);
+      const ok=await fbSave(homeKey, next).catch(()=>false);
       setSync(ok?"live":"error");
       if(ok){setLastSt(Date.now());setSecs(0);}
     }else{ lsSave(next); }
@@ -634,28 +658,48 @@ function App(){
     }
   },[currentHome,catId]);
 
-  const saveAuth = async({household,pin}) => {
+  const saveAuth = async({household}) => {
     const key = householdKey(household);
-    const existing = dr.current?.households?.[key];
-    if(existing && existing.pin && existing.pin !== pin) return false;
-    if(existing && !existing.pin){
-      await doSave(d=>({...d,households:{...d.households,[key]:{...d.households[key],pin}}}));
+    const profile = { id:user?.uid||mkId(), name:(user?.displayName||user?.email?.split("@")[0]||"User"), emoji:"🧑", color:PCOLS[0] };
+    if(!FB_ON || !fbLoad){
+      const existing = dr.current?.households?.[key];
+      if(!existing){
+        await doSave(d=>({ ...d, households:{...d.households,[key]:{ ...mkHousehold(household,{name:household,cats:[],profiles:null}), profiles:[profile] }} }));
+      }
+      setActiveHome(key);
+      setDeviceHome(deviceId, key);
+      setAuthed(true);
+      setCatId(null);
+      return true;
     }
-    if(!existing){
-      await doSave(d=>({
-        ...d,
-        households:{
-          ...d.households,
-          [key]: mkHousehold(household,{name:household,pin,cats:[],profiles:null}),
-        },
-      }));
+    try {
+      let homeData = await fbLoad(key);
+      if(!homeData){
+        homeData = { households:{ [key]: { ...mkHousehold(household,{name:household,cats:[],profiles:null}), profiles:[profile] } } };
+        await fbSave(key, homeData);
+      } else {
+        const normalized = normalizeData(homeData);
+        const existing = normalized.households?.[key] || mkHousehold(household,{name:household,cats:[],profiles:null});
+        const hasProfile = Array.isArray(existing.profiles) && existing.profiles.some(p=>p.id===profile.id);
+        if(!hasProfile){
+          existing.profiles = [ ...(existing.profiles || []), profile ];
+          await fbSave(key, { households:{ [key]: existing } });
+        }
+      }
+      if(fbSaveUserMeta && user?.uid){
+        const nextHomes = Array.from(new Set([...(userHomes||[]), key]));
+        await fbSaveUserMeta(user.uid, { households: nextHomes });
+        setUserHomes(nextHomes);
+      }
+      setActiveHome(key);
+      setDeviceHome(deviceId, key);
+      setAuthed(true);
+      setCatId(null);
+      return true;
+    } catch (err) {
+      console.error(err);
+      return false;
     }
-    setActiveHome(key);
-    setDeviceHome(deviceId, key);
-    setAuthed(true);
-    setUid(null);
-    setCatId(null);
-    return true;
   };
 
   const addAttack=async()=>{
@@ -675,9 +719,6 @@ function App(){
   const cats=currentHome?.cats||[];
   const currentCat=cats.find(c=>c.id===catId)||null;
 
-  useEffect(()=>{
-    if(uid && profiles && !profiles.some(p=>p.id===uid)) setUid(null);
-  },[uid,profiles]);
 
   if(FB_ON && !authReady) return e("div",{style:{background:G.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,color:G.text}},e("div",{style:{fontSize:34}},"🔐"),e("div",{className:"blink",style:{fontSize:13,color:G.muted}},"Loading account…"));
   if(FB_ON && authReady && !user) return e(AuthGate,{lang,setLang,onAuth:handleUserAuth});
@@ -690,16 +731,15 @@ function App(){
 
   if(!authed) return e(LoginGate,{lang,setLang,existing:null,onSubmit:async(payload)=>{
     const ok=await saveAuth(payload);
-    if(!ok) alert(t.invalidPin);
+    if(!ok) alert(t.authError);
   }});
   if(!currentHome) return e(LoginGate,{lang,setLang,existing:null,onSubmit:async(payload)=>{
     const ok=await saveAuth(payload);
-    if(!ok) alert(t.invalidPin);
+    if(!ok) alert(t.authError);
   }});
   if(cats.length===0) return e(CatSetupScreen,{lang,setLang,onSave:async(name)=>{ if(!homeKey) return; const id = `c${Date.now().toString(36).slice(-5)}`; await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:[mkCat(0,name,{id,name})]}}})); setCatId(id); }});
   if(!currentCat) return e(CatPicker,{lang,setLang,cats,onChoose:setCatId,onAdd:async(name)=>{ if(!homeKey) return; const id = `c${Date.now().toString(36).slice(-5)}`; await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:[...d.households[homeKey].cats,mkCat(d.households[homeKey].cats.length,name,{id,name})]}}})); setCatId(id); }});
   if(!profiles) return e(SetupScreen,{lang,setLang,onSave:ps=>homeKey&&doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],profiles:ps}}}))});
-  if(!uid)      return e(UserPicker,{lang,setLang,profiles,onChoose:setUid});
 
   const attacks=Array.isArray(currentCat.attacks)?currentCat.attacks:[];
   const inhalerLogs=Array.isArray(currentCat.inhalerLogs)?currentCat.inhalerLogs:[];
@@ -716,7 +756,7 @@ function App(){
   const avgD=attacks.length?(attacks.reduce((s,a)=>s+a.duration,0)/attacks.length).toFixed(1):0;
   const sevN=attacks.filter(a=>a.severity==="severe").length;
   const avgB=(inhalerLogs.reduce((s,l)=>s+l.breaths,0)/(inhalerLogs.length||1)).toFixed(1);
-  const me=profiles.find(p=>p.id===uid);
+  const me=profiles.find(p=>p.id===uid) || {id:uid,name:(user?.displayName||user?.email?.split("@")[0]||"User"),emoji:"🧑",color:PCOLS[0]};
   const others=profiles.filter(p=>p.id!==uid);
   const myColor=me?.color||G.amber;
 
@@ -740,7 +780,7 @@ function App(){
             e("div",null,
               e("div",{style:{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}},
                 e("span",{style:{fontFamily:"'Playfair Display',serif",fontSize:17,fontWeight:700,lineHeight:1}},"Pawsthma"),
-                e("span",{onClick:()=>setUid(null),title:t.switchProfile,style:{fontSize:9,fontWeight:700,color:myColor,background:`${myColor}18`,border:`1px solid ${myColor}40`,padding:"3px 8px",borderRadius:10,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3}},`${me?.emoji} ${me?.name}`),
+                e("span",{onClick:()=>setShowMgr(true),title:t.switchProfile,style:{fontSize:9,fontWeight:700,color:myColor,background:`${myColor}18`,border:`1px solid ${myColor}40`,padding:"3px 8px",borderRadius:10,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3}},`${me?.emoji} ${me?.name}`),
                 e("span",{onClick:()=>setCatId(null),title:t.switchCat,style:{fontSize:9,fontWeight:700,color:G.mint,background:`${G.mint}18`,border:`1px solid ${G.mint}40`,padding:"3px 8px",borderRadius:10,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3}},`🐱 ${currentCat.name}`),
                 e("span",{onClick:()=>{clearDeviceHome(deviceId);setAuthed(false);setUid(null);setCatId(null);setActiveHome(null);},title:t.switchHousehold,style:{fontSize:9,fontWeight:700,color:G.amber,background:`${G.amber}18`,border:`1px solid ${G.amber}40`,padding:"3px 8px",borderRadius:10,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3}},`🏠 ${currentHome?.name||"Home"}`)
               ),
