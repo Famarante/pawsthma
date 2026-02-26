@@ -169,7 +169,7 @@ const T = {
     loginCreate:"Access household", loginEnter:"Access household",
     loginSub:"Use this login to load family profiles and cats.",
     householdName:"Household name", login:"Login",
-    loginNeedHousehold:"Please enter a household name",
+    loginNeedHousehold:"Please enter a household name", signedInAs:(u)=>`Signed in as ${u}`,
     chooseCat:"Choose your cat", catHistorySub:"Each cat has its own asthma history.", addNewCat:"Add new cat", catName:"Cat name", add:"Add", catCount:(n)=>`${n} attack${n!==1?"s":""}`,
     firstCatTitle:"Setup your first cat", firstCatSub:"Every household starts by configuring at least one cat.", firstCatRequired:"Please add your first cat name", saveCat:"Save cat",
     demoWarning:"Demo mode: data is only saved on this device. To sync between phones, add your Firebase config.",
@@ -214,7 +214,7 @@ const T = {
     loginCreate:"Aceder à casa", loginEnter:"Aceder à casa",
     loginSub:"Usa este acesso para carregar perfis e gatos da família.",
     householdName:"Nome da casa", login:"Entrar",
-    loginNeedHousehold:"Introduz o nome da casa",
+    loginNeedHousehold:"Introduz o nome da casa", signedInAs:(u)=>`Sessão iniciada como ${u}`,
     chooseCat:"Escolhe o teu gato", catHistorySub:"Cada gato tem o seu histórico de asma.", addNewCat:"Adicionar novo gato", catName:"Nome do gato", add:"Adicionar", catCount:(n)=>`${n} crise${n!==1?"s":""}`,
     firstCatTitle:"Configura o primeiro gato", firstCatSub:"Cada casa começa por configurar pelo menos um gato.", firstCatRequired:"Adiciona o nome do primeiro gato", saveCat:"Guardar gato",
     demoWarning:"Modo demo: os dados são guardados apenas neste dispositivo. Para sincronizar entre telemóveis, adiciona a configuração Firebase.",
@@ -425,7 +425,7 @@ function AuthGate({lang,setLang,onAuth}){
   );
 }
 
-function LoginGate({lang,setLang,onSubmit,existing}){
+function LoginGate({lang,setLang,onSubmit,existing,account}){
   const t = T[lang];
   const [household,setHousehold] = useState(existing?.household||"");
   const [err,setErr] = useState(null);
@@ -438,6 +438,7 @@ function LoginGate({lang,setLang,onSubmit,existing}){
     e("div",{style:{width:"100%",maxWidth:400,background:G.surface,border:`1px solid ${G.border}`,borderRadius:22,padding:20}},
       e("div",{style:{fontSize:36,textAlign:"center",marginBottom:8}},"🔐"),
       e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:24,fontWeight:700,textAlign:"center",marginBottom:8}},t.loginEnter),
+      account && e("div",{style:{fontSize:12,color:G.muted,textAlign:"center",marginBottom:8}},t.signedInAs(account)),
       e("div",{style:{fontSize:13,color:G.muted,textAlign:"center",marginBottom:16}},t.loginSub),
       e("div",{style:{marginBottom:12}}, e("input",{value:household,onChange:ev=>{setHousehold(ev.target.value);setErr(null);},placeholder:t.householdName,style:IS()})),
       err && e("div",{style:{fontSize:12,color:G.coral,marginBottom:12}},err),
@@ -729,11 +730,11 @@ function App(){
     e("div",{className:"blink",style:{fontSize:13,color:G.muted}},"Loading…")
   );
 
-  if(!authed) return e(LoginGate,{lang,setLang,existing:null,onSubmit:async(payload)=>{
+  if(!authed) return e(LoginGate,{lang,setLang,account:user?.email||user?.displayName||"",existing:null,onSubmit:async(payload)=>{
     const ok=await saveAuth(payload);
     if(!ok) alert(t.authError);
   }});
-  if(!currentHome) return e(LoginGate,{lang,setLang,existing:null,onSubmit:async(payload)=>{
+  if(!currentHome) return e(LoginGate,{lang,setLang,account:user?.email||user?.displayName||"",existing:null,onSubmit:async(payload)=>{
     const ok=await saveAuth(payload);
     if(!ok) alert(t.authError);
   }});
