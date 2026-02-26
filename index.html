@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
+  <meta name="mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="theme-color" content="#0a0f1e"/>
+  <title>Pawsthma 🐱</title>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html,body{height:100%;background:#0a0f1e;color:#f0ece4;font-family:'DM Sans',sans-serif}
+    #root{min-height:100%}
+    ::-webkit-scrollbar{width:0}
+    input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.7)}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes slideUp{from{transform:translateY(100%);opacity:0}to{transform:translateY(0);opacity:1}}
+    @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+    .fu{animation:fadeUp .4s cubic-bezier(.22,1,.36,1) both}
+    .su{animation:slideUp .38s cubic-bezier(.22,1,.36,1) both}
+    .blink{animation:blink 1.4s ease-in-out infinite}
+  </style>
+</head>
+<body>
+<div id="root">
+  <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;gap:16px">
+    <div style="font-size:52px">🐱</div>
+    <div style="font-family:'Playfair Display',serif;font-size:22px;font-weight:700">Pawsthma</div>
+    <div class="blink" style="font-size:13px;color:rgba(240,236,228,0.45)">Loading…</div>
+  </div>
+</div>
+
+<script type="module">
+// ════════════════════════════════════════════════════════════
+//  🔥 STEP 1 — Paste your Firebase config here
+//  (Firebase Console → Project Settings → Your apps → Web)
+// ════════════════════════════════════════════════════════════
+
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyC9G95r3-vYEvSF8SjQgYenfbSwexsoSHk",
+  authDomain: "pawsthma.firebaseapp.com",
+  projectId: "pawsthma",
+  databaseURL: "https://pawsthma-default-rtdb.europe-west1.firebasedatabase.app/",
+  storageBucket: "pawsthma.firebasestorage.app",
+  messagingSenderId: "416458724436",
+  appId: "1:416458724436:web:305b100e62429fbd7189c1"
+};
+// ════════════════════════════════════════════════════════════
+
+import React, { useState, useEffect, useRef } from "https://esm.sh/react@18";
+import { createRoot } from "https://esm.sh/react-dom@18/client";
+import {
+  BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
+} from "https://esm.sh/recharts@2";
+
+const FB_ON = FIREBASE_CONFIG.apiKey !== "PASTE_YOUR_API_KEY_HERE";
+let fbLoad = null, fbSave = null, fbSubscribe = null;
+
+if (FB_ON) {
+  try {
+    const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js");
+    const { getDatabase, ref, get, set, onValue } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js");
+    const app = initializeApp(FIREBASE_CONFIG);
+    const db  = getDatabase(app);
+    const dbRef = ref(db, "pawsthma/data");
+    fbLoad      = async () => { const s = await get(dbRef); return s.val(); };
+    fbSave      = async (d) => { await set(dbRef, d); return true; };
+    fbSubscribe = (cb) => onValue(dbRef, s => { const v = s.val(); if (v) cb(v); });
+    console.log("Firebase connected");
+  } catch (e) { console.error("Firebase error:", e); }
+}
+
+const LS = "pawsthma_v3";
+const lsLoad = () => { try { const v = localStorage.getItem(LS); return v ? JSON.parse(v) : null; } catch { return null; } };
+const lsSave = (d) => { try { localStorage.setItem(LS, JSON.stringify(d)); } catch {} };
+
+const G = {
+  bg:"#0a0f1e", surface:"rgba(255,255,255,0.04)", border:"rgba(255,255,255,0.09)",
+  bBright:"rgba(245,166,35,0.3)", amber:"#f5a623", coral:"#ff6b6b", mint:"#4ecdc4",
+  text:"#f0ece4", muted:"rgba(240,236,228,0.45)", sub:"rgba(240,236,228,0.65)",
+};
+const SEV = { mild:"#4ecdc4", moderate:"#f5a623", severe:"#ff6b6b" };
+const PCOLS = ["#f5a623","#f472b6","#4ecdc4","#a78bfa","#34d399","#fb923c","#60a5fa","#f87171"];
+const EMOJIS = ["🧑","👩","👨","🧔","👱","🧕","👩‍🦱","👨‍🦱","👩‍🦰","👨‍🦰","🧑‍🦳","🧑‍🦲","🐱","🐶","🌟","🌻","🦋","🐢","🐠","🐇","🦊","🐻","🎸","🎨","⚽","🎮"];
+
+const T = {
+  en: {
+    sub:"Cat Asthma Care", btnA:"+ Attack", btnI:"+ Inhaler",
+    tabs:{dashboard:"Home",attacks:"Attacks",inhaler:"Inhaler",insights:"Insights"},
+    overdueAlert:"Inhaler overdue for cleaning", soonAlert:"Inhaler cleaning soon",
+    daysSince:(d,i)=>`${d} of ${i} days since last clean`,
+    totalAttacks:"Total Attacks", lastAttack:"Last Attack", lastInhaler:"Last Inhaler",
+    breaths:(n)=>`${n} breath${n!==1?"s":""}`,
+    weekly:"Weekly Overview", inhalerStatus:"Inhaler Status",
+    dosage:"Dosage", lastCleaned:"Last Cleaned", daysSinceClean:"Days Since Clean", cleanInterval:"Clean Interval",
+    attackLog:"Attack Log", total:"total", duration:(n)=>`${n} min${n!==1?"s":""}`,
+    deviceSettings:"Device Settings", cleanEvery:"Clean Every (days)", saveSettings:"Save Settings",
+    inhalerLog:"Inhaler Log", uses:"uses",
+    durationTrend:"Attack Duration Trend", sevDist:"Severity Distribution", obs:"Observations",
+    obs1:(d,s)=>`Last attack was ${d} days ago — ${s} severity`,
+    obs2:(a)=>`Average attack lasts ${a} minutes`,
+    obs3:(n)=>`${n} severe attack${n>1?"s":""} — consider talking to your vet`,
+    obs4:(n)=>`Inhaler used ${n} times total`,
+    avgDur:"Avg Duration", sevEps:"Severe Episodes", avgBr:"Avg Breaths",
+    attackModal:"🌊 Record Attack", inhalerModal:"💨 Record Inhaler Use",
+    date:"Date", severity:"Severity", durLabel:"Duration (minutes)",
+    notes:"Notes (optional)", notesP:"After eating, at night…",
+    durP:"e.g. 3", dosageP:"e.g. 110mcg",
+    numBreaths:"Number of Breaths", saveAttack:"Save Attack", saveInhaler:"Save Inhaler Use",
+    sevLabels:{mild:"Mild",moderate:"Moderate",severe:"Severe"},
+    d:"d", m:"m", br:"br",
+    syncLive:"Live • synced", syncUpdated:"Updated just now",
+    syncAgo:(s)=>`Synced ${s}s ago`, syncError:"Sync error",
+    syncDemo:"Demo mode — data saved locally only",
+    whoAreYou:"Who are you?", switchProfile:"Switch profile",
+    sharedWith:(n)=>`Synced with ${n} in real time.`,
+    setupTitle:"Welcome to Pawsthma",
+    setupSub:"Create profiles for everyone tracking your cat's health",
+    addPerson:"+ Add person", letsGo:"Let's go →",
+    namePlaceholder:"Name…", nameRequired:"Each profile needs a name",
+    minProfiles:"Add at least one profile",
+    manageProfiles:"Manage Profiles", editProfiles:"Edit Profiles", done:"Done",
+    demoWarning:"Demo mode: data is only saved on this device. To sync between phones, add your Firebase config.",
+  },
+  pt: {
+    sub:"Cuidados com Asma Felina", btnA:"+ Crise", btnI:"+ Inalador",
+    tabs:{dashboard:"Início",attacks:"Crises",inhaler:"Inalador",insights:"Análise"},
+    overdueAlert:"Limpeza do inalador em atraso", soonAlert:"Limpeza do inalador em breve",
+    daysSince:(d,i)=>`${d} de ${i} dias desde a última limpeza`,
+    totalAttacks:"Total de Crises", lastAttack:"Última Crise", lastInhaler:"Último Inalador",
+    breaths:(n)=>`${n} inspiração${n!==1?"ões":""}`,
+    weekly:"Resumo Semanal", inhalerStatus:"Estado do Inalador",
+    dosage:"Dosagem", lastCleaned:"Última Limpeza", daysSinceClean:"Dias Desde Limpeza", cleanInterval:"Intervalo de Limpeza",
+    attackLog:"Registo de Crises", total:"total", duration:(n)=>`${n} min${n!==1?"utos":"uto"}`,
+    deviceSettings:"Configurações do Dispositivo", cleanEvery:"Limpar de (em dias)", saveSettings:"Guardar Configurações",
+    inhalerLog:"Registo do Inalador", uses:"usos",
+    durationTrend:"Evolução da Duração das Crises", sevDist:"Distribuição por Gravidade", obs:"Observações",
+    obs1:(d,s)=>`A última crise foi há ${d} dias — gravidade ${s}`,
+    obs2:(a)=>`Duração média de uma crise: ${a} minutos`,
+    obs3:(n)=>`${n} crise${n>1?"s":""} grave${n>1?"s":""} — considere falar com o veterinário`,
+    obs4:(n)=>`Inalador utilizado ${n} vez${n!==1?"es":""} no total`,
+    avgDur:"Duração Média", sevEps:"Crises Graves", avgBr:"Inspir. Médias",
+    attackModal:"🌊 Registar Crise", inhalerModal:"💨 Registar Inalador",
+    date:"Data", severity:"Gravidade", durLabel:"Duração (minutos)",
+    notes:"Notas (opcional)", notesP:"Após comer, à noite…",
+    durP:"ex: 3", dosageP:"ex: 110mcg",
+    numBreaths:"Número de Inspirações", saveAttack:"Guardar Crise", saveInhaler:"Guardar Uso do Inalador",
+    sevLabels:{mild:"Ligeira",moderate:"Moderada",severe:"Grave"},
+    d:"d", m:"m", br:"insp",
+    syncLive:"Ao vivo • sincronizado", syncUpdated:"Atualizado agora",
+    syncAgo:(s)=>`Sincronizado há ${s}s`, syncError:"Erro de sincronização",
+    syncDemo:"Modo demo — dados guardados apenas neste dispositivo",
+    whoAreYou:"Quem és tu?", switchProfile:"Trocar perfil",
+    sharedWith:(n)=>`Sincronizado com ${n} em tempo real.`,
+    setupTitle:"Bem-vindo ao Pawsthma",
+    setupSub:"Cria perfis para todos os que vão acompanhar a saúde do teu gato",
+    addPerson:"+ Adicionar pessoa", letsGo:"Vamos lá →",
+    namePlaceholder:"Nome…", nameRequired:"Cada perfil precisa de um nome",
+    minProfiles:"Adiciona pelo menos um perfil",
+    manageProfiles:"Gerir Perfis", editProfiles:"Editar Perfis", done:"Concluir",
+    demoWarning:"Modo demo: os dados são guardados apenas neste dispositivo. Para sincronizar entre telemóveis, adiciona a configuração Firebase.",
+  },
+};
+
+const DEFAULT = {
+  attacks:[
+    {id:1,date:"2025-02-01",severity:"mild",    duration:2,notes:"After eating", addedBy:"p1"},
+    {id:2,date:"2025-02-05",severity:"moderate", duration:5,notes:"Night episode",addedBy:"p2"},
+    {id:3,date:"2025-02-10",severity:"mild",     duration:1,notes:"",            addedBy:"p1"},
+    {id:4,date:"2025-02-14",severity:"severe",   duration:8,notes:"Vet called",  addedBy:"p2"},
+    {id:5,date:"2025-02-18",severity:"moderate", duration:4,notes:"",            addedBy:"p1"},
+    {id:6,date:"2025-02-22",severity:"mild",     duration:2,notes:"Morning",     addedBy:"p2"},
+  ],
+  inhalerLogs:[
+    {id:1,date:"2025-02-01",breaths:2,dosage:"110mcg",addedBy:"p1"},
+    {id:2,date:"2025-02-05",breaths:3,dosage:"110mcg",addedBy:"p2"},
+    {id:3,date:"2025-02-14",breaths:3,dosage:"110mcg",addedBy:"p2"},
+    {id:4,date:"2025-02-18",breaths:2,dosage:"110mcg",addedBy:"p1"},
+    {id:5,date:"2025-02-22",breaths:2,dosage:"110mcg",addedBy:"p2"},
+  ],
+  inhalerInfo:{dosage:"110mcg",lastCleaned:"2025-02-15",cleaningIntervalDays:14},
+  profiles:null,
+};
+
+const e = React.createElement;
+const today = () => new Date().toISOString().split("T")[0];
+const fmt = (d,lang) => new Date(d).toLocaleDateString(lang==="pt"?"pt-PT":"en-GB",{day:"numeric",month:"short"});
+const daysBetween = (a,b) => Math.round((new Date(b)-new Date(a))/86400000);
+const nextId = (arr) => arr.length ? Math.max(...arr.map(x=>x.id))+1 : 1;
+const mkId = () => "p"+Math.random().toString(36).slice(2,7);
+const IS = (extra={}) => ({width:"100%",padding:"12px 14px",borderRadius:12,border:`1px solid ${G.border}`,color:G.text,fontSize:15,outline:"none",boxSizing:"border-box",background:"rgba(255,255,255,0.04)",...extra});
+
+function EmojiPicker({value,onChange,color}){
+  const [open,setOpen] = useState(false);
+  return e("div",{style:{position:"relative",flexShrink:0}},
+    e("button",{onClick:()=>setOpen(o=>!o),style:{fontSize:28,background:`${color}18`,border:`2px solid ${color}50`,borderRadius:"50%",width:54,height:54,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}},value),
+    open && e("div",{style:{position:"absolute",top:60,left:"50%",transform:"translateX(-50%)",zIndex:300,background:"#121827",border:`1px solid ${G.border}`,borderRadius:16,padding:10,display:"flex",flexWrap:"wrap",gap:5,width:215,boxShadow:"0 8px 32px rgba(0,0,0,0.7)"}},
+      EMOJIS.map(em=>e("button",{key:em,onClick:()=>{onChange(em);setOpen(false);},style:{fontSize:20,background:value===em?`${color}25`:"transparent",border:`1.5px solid ${value===em?color:"transparent"}`,borderRadius:8,padding:"3px 4px",cursor:"pointer",lineHeight:1}},em))
+    )
+  );
+}
+
+function ColorDots({value,onChange}){
+  return e("div",{style:{display:"flex",flexDirection:"column",gap:4}},
+    [0,1,2,3].map(r=>e("div",{key:r,style:{display:"flex",gap:4}},
+      [0,1].map(c=>{const col=PCOLS[r*2+c];return e("button",{key:col,onClick:()=>onChange(col),style:{width:14,height:14,borderRadius:"50%",background:col,border:`2px solid ${value===col?"white":"transparent"}`,cursor:"pointer",padding:0}});})
+    ))
+  );
+}
+
+function ProfileRow({p,onUpdate,onRemove,canRemove}){
+  return e("div",{className:"fu",style:{background:G.surface,border:`1px solid ${G.border}`,borderRadius:20,padding:"16px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:12}},
+    e(EmojiPicker,{value:p.emoji,onChange:em=>onUpdate("emoji",em),color:p.color}),
+    e("input",{value:p.name,onChange:ev=>onUpdate("name",ev.target.value),placeholder:"Name…",maxLength:20,style:IS({flex:1,border:`1.5px solid ${p.name?p.color+"60":G.border}`,padding:"10px 12px"})}),
+    e(ColorDots,{value:p.color,onChange:col=>onUpdate("color",col)}),
+    canRemove && e("button",{onClick:onRemove,style:{background:"rgba(255,107,107,0.12)",border:"1px solid rgba(255,107,107,0.3)",color:G.coral,borderRadius:10,padding:"6px 8px",cursor:"pointer",fontSize:13,flexShrink:0}},"✕")
+  );
+}
+
+function SetupScreen({lang,onSave}){
+  const t = T[lang];
+  const [profiles,setProfiles] = useState([
+    {id:mkId(),name:"",emoji:"👨",color:PCOLS[0]},
+    {id:mkId(),name:"",emoji:"👩",color:PCOLS[1]},
+  ]);
+  const [err,setErr] = useState(null);
+  const add = () => { if(profiles.length<8) setProfiles(ps=>[...ps,{id:mkId(),name:"",emoji:EMOJIS[ps.length%EMOJIS.length],color:PCOLS[ps.length%PCOLS.length]}]); };
+  const upd = (id,k,v) => { setProfiles(ps=>ps.map(p=>p.id===id?{...p,[k]:v}:p)); setErr(null); };
+  const rem = (id) => setProfiles(ps=>ps.filter(p=>p.id!==id));
+  const save = () => {
+    if(!profiles.length){setErr(t.minProfiles);return;}
+    if(profiles.some(p=>!p.name.trim())){setErr(t.nameRequired);return;}
+    onSave(profiles.map(p=>({...p,name:p.name.trim()})));
+  };
+  return e("div",{style:{background:G.bg,minHeight:"100vh",color:G.text,display:"flex",flexDirection:"column",alignItems:"center",padding:"40px 16px 60px",position:"relative",overflow:"hidden"}},
+    e("div",{style:{position:"absolute",top:-80,left:-80,width:360,height:360,borderRadius:"50%",background:"radial-gradient(circle,rgba(245,166,35,0.07),transparent 70%)"}}),
+    e("div",{style:{fontSize:44,marginBottom:10}},"🐱"),
+    e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:24,fontWeight:700,marginBottom:6,textAlign:"center"}},t.setupTitle),
+    e("div",{style:{fontSize:13,color:G.muted,marginBottom:32,textAlign:"center",maxWidth:300,lineHeight:1.6}},t.setupSub),
+    e("div",{style:{width:"100%",maxWidth:420}},
+      profiles.map(p=>e(ProfileRow,{key:p.id,p,onUpdate:(k,v)=>upd(p.id,k,v),onRemove:()=>rem(p.id),canRemove:profiles.length>1})),
+      profiles.length<8 && e("button",{onClick:add,style:{width:"100%",padding:"12px",borderRadius:16,border:`1.5px dashed ${G.border}`,background:"transparent",color:G.muted,cursor:"pointer",fontSize:13,marginBottom:20}},t.addPerson),
+      err && e("div",{style:{fontSize:12,color:G.coral,marginBottom:12,textAlign:"center"}},err),
+      e("button",{onClick:save,style:{width:"100%",padding:"15px",borderRadius:16,border:"none",background:`linear-gradient(135deg,${G.amber},#e8890c)`,color:"#0a0f1e",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:`0 6px 24px rgba(245,166,35,0.35)`}},t.letsGo)
+    )
+  );
+}
+
+function ManageModal({lang,profiles,onSave,onClose}){
+  const t = T[lang];
+  const [local,setLocal] = useState(profiles.map(p=>({...p})));
+  const [err,setErr] = useState(null);
+  const upd = (id,k,v) => { setLocal(ps=>ps.map(p=>p.id===id?{...p,[k]:v}:p)); setErr(null); };
+  const rem = (id) => { if(local.length>1) setLocal(ps=>ps.filter(p=>p.id!==id)); };
+  const add = () => { if(local.length<8) setLocal(ps=>[...ps,{id:mkId(),name:"",emoji:EMOJIS[ps.length%EMOJIS.length],color:PCOLS[ps.length%PCOLS.length]}]); };
+  const save = () => {
+    if(local.some(p=>!p.name.trim())){setErr(t.nameRequired);return;}
+    onSave(local.map(p=>({...p,name:p.name.trim()})));
+  };
+  return e("div",{onClick:onClose,style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:400,display:"flex",alignItems:"flex-end",backdropFilter:"blur(6px)"}},
+    e("div",{className:"su",onClick:ev=>ev.stopPropagation(),style:{background:"linear-gradient(180deg,#121827,#0d1220)",borderRadius:"28px 28px 0 0",padding:"24px 16px 48px",width:"100%",maxWidth:480,margin:"0 auto",border:`1px solid ${G.border}`,borderBottom:"none",maxHeight:"80vh",overflowY:"auto"}},
+      e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}},
+        e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:19,fontWeight:700}},t.editProfiles),
+        e("button",{onClick:onClose,style:{background:"rgba(255,255,255,0.07)",border:"none",borderRadius:50,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:G.muted,fontSize:16}},"✕")
+      ),
+      local.map(p=>e(ProfileRow,{key:p.id,p,onUpdate:(k,v)=>upd(p.id,k,v),onRemove:()=>rem(p.id),canRemove:local.length>1})),
+      local.length<8 && e("button",{onClick:add,style:{width:"100%",padding:"11px",borderRadius:14,border:`1.5px dashed ${G.border}`,background:"transparent",color:G.muted,cursor:"pointer",fontSize:12,marginBottom:16}},t.addPerson),
+      err && e("div",{style:{fontSize:12,color:G.coral,marginBottom:10,textAlign:"center"}},err),
+      e("button",{onClick:save,style:{width:"100%",padding:"14px",borderRadius:14,border:"none",background:`linear-gradient(135deg,${G.mint},${G.mint}cc)`,color:"#0a0f1e",fontWeight:700,fontSize:15,cursor:"pointer"}},t.done)
+    )
+  );
+}
+
+function UserPicker({lang,profiles,onChoose}){
+  const t = T[lang];
+  const [hov,setHov] = useState(null);
+  const cols = profiles.length<=2?profiles.length:profiles.length<=4?2:3;
+  return e("div",{style:{background:G.bg,minHeight:"100vh",color:G.text,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"32px 20px",position:"relative",overflow:"hidden"}},
+    e("div",{style:{position:"absolute",top:-80,left:-80,width:360,height:360,borderRadius:"50%",background:"radial-gradient(circle,rgba(245,166,35,0.08),transparent 70%)"}}),
+    e("div",{style:{fontSize:46,marginBottom:10}},"🐱"),
+    e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:24,fontWeight:700,marginBottom:6}},"Pawsthma"),
+    e("div",{style:{fontSize:13,color:G.muted,marginBottom:32,textAlign:"center"}},t.whoAreYou),
+    e("div",{style:{display:"grid",gridTemplateColumns:`repeat(${cols},1fr)`,gap:12,width:"100%",maxWidth:420}},
+      profiles.map(p=>e("button",{key:p.id,onClick:()=>onChoose(p.id),onMouseEnter:()=>setHov(p.id),onMouseLeave:()=>setHov(null),
+        style:{border:`2px solid ${hov===p.id?p.color:G.border}`,borderRadius:20,padding:"22px 10px",background:hov===p.id?`${p.color}12`:G.surface,cursor:"pointer",transition:"all 0.2s",display:"flex",flexDirection:"column",alignItems:"center",gap:8,boxShadow:hov===p.id?`0 6px 28px ${p.color}25`:"none"}},
+        e("span",{style:{fontSize:38}},p.emoji),
+        e("span",{style:{color:hov===p.id?p.color:G.text,fontWeight:700,fontSize:14,textAlign:"center",wordBreak:"break-word"}},p.name)
+      ))
+    )
+  );
+}
+
+function WhoBadge({addedBy,profiles}){
+  const p = profiles?.find(x=>x.id===addedBy);
+  if(!p) return null;
+  return e("span",{style:{fontSize:9,fontWeight:700,color:p.color,background:`${p.color}18`,padding:"3px 8px",borderRadius:10,display:"inline-flex",alignItems:"center",gap:3,flexShrink:0}},`${p.emoji} ${p.name}`);
+}
+
+const CTip = ({active,payload,label}) => {
+  if(!active||!payload?.length) return null;
+  return e("div",{style:{background:"rgba(10,15,30,0.95)",border:`1px solid ${G.border}`,borderRadius:12,padding:"10px 14px",fontSize:12,color:G.text}},
+    e("div",{style:{color:G.muted,marginBottom:4}},label),
+    payload.map(p=>e("div",{key:p.dataKey,style:{color:p.color||G.amber,fontWeight:600}},`${p.name||p.dataKey}: ${p.value}`))
+  );
+};
+
+function App(){
+  const [lang,setLang] = useState("en");
+  const t = T[lang];
+  const [data,setData] = useState(null);
+  const [uid,setUid]   = useState(null);
+  const [sync,setSync] = useState("loading");
+  const [secs,setSecs] = useState(0);
+  const [lastSt,setLastSt] = useState(null);
+  const [showMgr,setShowMgr] = useState(false);
+  const [tab,setTab]   = useState("dashboard");
+  const [modal,setModal] = useState(null);
+  const [aKey,setAKey] = useState(0);
+  const [af,setAf]     = useState({date:today(),severity:"mild",duration:"",notes:""});
+  const [inf,setInf]   = useState({date:today(),breaths:2,dosage:"110mcg"});
+  const [iif,setIif]   = useState(DEFAULT.inhalerInfo);
+  const dr = useRef(null);
+
+  useEffect(()=>{
+    (async()=>{
+      if(fbLoad){
+        try{
+          let remote = await fbLoad();
+          if(!remote){ remote={...DEFAULT}; await fbSave(remote); }
+          setData(remote); setIif(remote.inhalerInfo); dr.current=remote;
+          setSync("live"); setLastSt(Date.now());
+          fbSubscribe(inc=>{
+            setData(inc); setIif(inc.inhalerInfo); dr.current=inc;
+            setSync("updated"); setLastSt(Date.now());
+            setTimeout(()=>setSync("live"),2500);
+          });
+        }catch(err){
+          console.error(err); bootLocal();
+        }
+      }else{ bootLocal(); }
+    })();
+    function bootLocal(){
+      const saved = lsLoad()||{...DEFAULT};
+      setData(saved); setIif(saved.inhalerInfo); dr.current=saved;
+      setSync("demo");
+    }
+  },[]);
+
+  useEffect(()=>{
+    const id=setInterval(()=>{
+      if(lastSt&&sync==="live"){
+        const s=Math.floor((Date.now()-lastSt)/1000);
+        setSecs(s); if(s>8)setSync("synced");
+      }
+    },1000);
+    return()=>clearInterval(id);
+  },[lastSt,sync]);
+
+  const doSave = async(updater)=>{
+    const next=updater(dr.current);
+    setData(next); dr.current=next;
+    if(fbSave){
+      setSync("loading");
+      const ok=await fbSave(next).catch(()=>false);
+      setSync(ok?"live":"error");
+      if(ok){setLastSt(Date.now());setSecs(0);}
+    }else{ lsSave(next); }
+  };
+
+  const addAttack=async()=>{ if(!af.duration)return; await doSave(d=>({...d,attacks:[...d.attacks,{...af,id:nextId(d.attacks),duration:Number(af.duration),addedBy:uid}]})); setModal(null); setAf({date:today(),severity:"mild",duration:"",notes:""}); };
+  const addInhaler=async()=>{ await doSave(d=>({...d,inhalerLogs:[...d.inhalerLogs,{...inf,id:nextId(d.inhalerLogs),breaths:Number(inf.breaths),addedBy:uid}]})); setModal(null); };
+  const saveII=()=>doSave(d=>({...d,inhalerInfo:{...iif}}));
+  const saveProfiles=async(ps)=>{ await doSave(d=>({...d,profiles:ps})); setShowMgr(false); };
+
+  const profiles=data?.profiles||null;
+
+  if(!data) return e("div",{style:{background:G.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16}},
+    e("div",{style:{fontSize:52}},"🐱"),
+    e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:700}},"Pawsthma"),
+    e("div",{className:"blink",style:{fontSize:13,color:G.muted}},"Loading…")
+  );
+  if(!profiles) return e(SetupScreen,{lang,onSave:ps=>doSave(d=>({...d,profiles:ps}))});
+  if(!uid)      return e(UserPicker,{lang,profiles,onChoose:setUid});
+
+  const sorted=[...data.attacks].sort((a,b)=>a.date.localeCompare(b.date));
+  const weekly=(()=>{ const m={}; sorted.forEach(a=>{ const d=new Date(a.date); const w=new Date(d.setDate(d.getDate()-d.getDay())).toISOString().split("T")[0]; if(!m[w])m[w]={label:fmt(w,lang),mild:0,moderate:0,severe:0}; m[w][a.severity]++; }); return Object.values(m).slice(-6); })();
+  const sevDist=(()=>{ const c={mild:0,moderate:0,severe:0}; data.attacks.forEach(a=>c[a.severity]++); return Object.entries(c).map(([n,v])=>({name:n,label:t.sevLabels[n],value:v})).filter(x=>x.value>0); })();
+  const durTrend=sorted.map(a=>({date:fmt(a.date,lang),duration:a.duration}));
+  const lastA=sorted[sorted.length-1];
+  const sortedI=[...data.inhalerLogs].sort((a,b)=>a.date.localeCompare(b.date));
+  const lastI=sortedI[sortedI.length-1];
+  const ds=daysBetween(data.inhalerInfo.lastCleaned,today());
+  const overdue=ds>=data.inhalerInfo.cleaningIntervalDays;
+  const soon=!overdue&&ds>=data.inhalerInfo.cleaningIntervalDays-3;
+  const avgD=data.attacks.length?(data.attacks.reduce((s,a)=>s+a.duration,0)/data.attacks.length).toFixed(1):0;
+  const sevN=data.attacks.filter(a=>a.severity==="severe").length;
+  const avgB=(data.inhalerLogs.reduce((s,l)=>s+l.breaths,0)/(data.inhalerLogs.length||1)).toFixed(1);
+  const me=profiles.find(p=>p.id===uid);
+  const others=profiles.filter(p=>p.id!==uid);
+  const myColor=me?.color||G.amber;
+
+  const syncCfg={loading:{color:G.muted,dot:G.muted,pulse:true,label:"…"},live:{color:G.mint,dot:G.mint,pulse:false,label:t.syncLive},updated:{color:G.mint,dot:G.mint,pulse:false,label:t.syncUpdated},error:{color:G.coral,dot:G.coral,pulse:true,label:t.syncError},synced:{color:G.muted,dot:G.mint,pulse:false,label:t.syncAgo(secs)},demo:{color:G.amber,dot:G.amber,pulse:false,label:t.syncDemo}}[sync]||{color:G.muted,dot:G.mint,pulse:false,label:t.syncAgo(secs)};
+  const TABS=[{id:"dashboard",icon:"◈"},{id:"attacks",icon:"⟁"},{id:"inhaler",icon:"◎"},{id:"insights",icon:"◉"}];
+  const lbl={fontSize:11,color:G.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8,display:"block"};
+  const sec={fontSize:11,color:G.muted,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:600,marginBottom:12};
+  const card={background:G.surface,border:`1px solid ${G.border}`,borderRadius:20,padding:"18px",marginBottom:16};
+
+  return e("div",{style:{background:G.bg,minHeight:"100vh",color:G.text,position:"relative"}},
+    e("div",{style:{position:"fixed",inset:0,pointerEvents:"none",zIndex:0}},
+      e("div",{style:{position:"absolute",top:-120,left:-80,width:400,height:400,borderRadius:"50%",background:"radial-gradient(circle,rgba(245,166,35,0.08),transparent 70%)"}}),
+      e("div",{style:{position:"absolute",bottom:-100,right:-60,width:350,height:350,borderRadius:"50%",background:"radial-gradient(circle,rgba(78,205,196,0.06),transparent 70%)"}})
+    ),
+    // Header
+    e("div",{style:{position:"sticky",top:0,zIndex:50,backdropFilter:"blur(24px)",background:"rgba(10,15,30,0.85)",borderBottom:`1px solid ${G.border}`}},
+      e("div",{style:{padding:"12px 16px 0",maxWidth:480,margin:"0 auto"}},
+        e("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}},
+          e("div",{style:{display:"flex",alignItems:"center",gap:10}},
+            e("div",{style:{width:36,height:36,borderRadius:12,background:`linear-gradient(135deg,${G.amber},#e8890c)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,boxShadow:`0 4px 16px rgba(245,166,35,0.35)`,flexShrink:0}},"🐱"),
+            e("div",null,
+              e("div",{style:{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}},
+                e("span",{style:{fontFamily:"'Playfair Display',serif",fontSize:17,fontWeight:700,lineHeight:1}},"Pawsthma"),
+                e("span",{onClick:()=>setUid(null),title:t.switchProfile,style:{fontSize:9,fontWeight:700,color:myColor,background:`${myColor}18`,border:`1px solid ${myColor}40`,padding:"3px 8px",borderRadius:10,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3}},`${me?.emoji} ${me?.name}`)
+              ),
+              e("div",{style:{fontSize:9,color:G.muted,letterSpacing:"0.1em",textTransform:"uppercase",marginTop:2}},t.sub)
+            )
+          ),
+          e("div",{style:{display:"flex",gap:8,alignItems:"center"}},
+            e("button",{onClick:()=>setShowMgr(true),style:{background:"rgba(255,255,255,0.06)",border:`1px solid ${G.border}`,borderRadius:20,padding:"6px 10px",cursor:"pointer",color:G.muted,fontSize:14}},"👥"),
+            e("div",{style:{display:"flex",background:"rgba(255,255,255,0.07)",borderRadius:20,padding:3,gap:2}},
+              ["en","pt"].map(l=>e("button",{key:l,onClick:()=>setLang(l),style:{border:"none",borderRadius:16,padding:"5px 9px",cursor:"pointer",fontSize:11,fontWeight:700,textTransform:"uppercase",background:lang===l?G.amber:"transparent",color:lang===l?"#0a0f1e":G.muted}},l==="en"?"🇬🇧 EN":"🇵🇹 PT"))
+            )
+          )
+        ),
+        e("div",{style:{display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"5px 0 2px"}},
+          e("div",{className:syncCfg.pulse?"blink":"",style:{width:6,height:6,borderRadius:"50%",background:syncCfg.dot,flexShrink:0}}),
+          e("span",{style:{fontSize:10,color:syncCfg.color,letterSpacing:"0.05em"}},syncCfg.label)
+        ),
+        e("div",{style:{display:"flex",gap:8,margin:"10px 0 10px"}},
+          e("button",{onClick:()=>setModal("attack"),style:{flex:1,background:`${G.coral}18`,border:`1px solid ${G.coral}40`,color:G.coral,borderRadius:20,padding:"8px 12px",cursor:"pointer",fontSize:12,fontWeight:600}},t.btnA),
+          e("button",{onClick:()=>setModal("inhaler"),style:{flex:1,background:`${G.mint}18`,border:`1px solid ${G.mint}40`,color:G.mint,borderRadius:20,padding:"8px 12px",cursor:"pointer",fontSize:12,fontWeight:600}},t.btnI)
+        ),
+        e("div",{style:{display:"flex"}},
+          TABS.map(tb=>e("button",{key:tb.id,onClick:()=>{setTab(tb.id);setAKey(k=>k+1);},style:{flex:1,border:"none",background:"none",cursor:"pointer",padding:"6px 0 11px",color:tab===tb.id?G.amber:G.muted,borderBottom:`2px solid ${tab===tb.id?G.amber:"transparent"}`,display:"flex",flexDirection:"column",alignItems:"center",gap:3,transition:"color 0.2s"}},
+            e("span",{style:{fontSize:14}},tb.icon),
+            e("span",{style:{fontSize:9,fontWeight:tab===tb.id?700:400,letterSpacing:"0.06em",textTransform:"uppercase"}},t.tabs[tb.id])
+          ))
+        )
+      )
+    ),
+    // Content
+    e("div",{key:aKey,style:{padding:"22px 16px 100px",maxWidth:480,margin:"0 auto",position:"relative",zIndex:1}},
+      sync==="demo" && e("div",{style:{background:"rgba(245,166,35,0.08)",border:`1px solid rgba(245,166,35,0.25)`,borderRadius:14,padding:"10px 14px",marginBottom:16,fontSize:12,color:G.muted,lineHeight:1.6}},`⚠️ ${t.demoWarning}`),
+
+      tab==="dashboard" && e("div",null,
+        others.length>0 && e("div",{className:"fu",style:{display:"flex",alignItems:"center",gap:10,background:"rgba(78,205,196,0.06)",border:"1px solid rgba(78,205,196,0.15)",borderRadius:14,padding:"10px 14px",marginBottom:16,fontSize:12,color:G.muted}},e("span",{style:{fontSize:16}},"🔄"),e("span",null,t.sharedWith(others.map(p=>`${p.emoji} ${p.name}`).join(", ")))),
+        (overdue||soon) && e("div",{className:"fu",style:{background:overdue?"rgba(255,107,107,0.12)":"rgba(245,166,35,0.1)",border:`1px solid ${overdue?"rgba(255,107,107,0.3)":G.bBright}`,borderRadius:16,padding:"14px 16px",marginBottom:16,display:"flex",gap:12,alignItems:"center"}},e("span",{style:{fontSize:22}},overdue?"🚨":"⚠️"),e("div",null,e("div",{style:{fontWeight:600,fontSize:13,color:overdue?G.coral:G.amber}},overdue?t.overdueAlert:t.soonAlert),e("div",{style:{fontSize:12,color:G.muted,marginTop:2}},t.daysSince(ds,data.inhalerInfo.cleaningIntervalDays)))),
+        e("div",{className:"fu",style:{animationDelay:"40ms",background:"linear-gradient(135deg,rgba(245,166,35,0.12),rgba(245,166,35,0.04))",border:`1px solid ${G.bBright}`,borderRadius:24,padding:"24px",marginBottom:16,position:"relative",overflow:"hidden"}},
+          e("div",{style:{position:"absolute",top:-30,right:-30,width:140,height:140,borderRadius:"50%",background:"radial-gradient(circle,rgba(245,166,35,0.15),transparent 70%)"}}),
+          e("div",{style:{fontSize:11,color:G.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}},t.totalAttacks),
+          e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:60,fontWeight:700,color:G.amber,lineHeight:1}},data.attacks.length),
+          e("div",{style:{display:"flex",gap:20,marginTop:16}},["mild","moderate","severe"].map(s=>e("div",{key:s},e("div",{style:{fontSize:20,fontWeight:700,color:SEV[s]}},data.attacks.filter(a=>a.severity===s).length),e("div",{style:{fontSize:10,color:G.muted}},t.sevLabels[s]))))
+        ),
+        e("div",{className:"fu",style:{animationDelay:"80ms",display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:20}},
+          e("div",{style:card},e("div",{style:{fontSize:10,color:G.muted,textTransform:"uppercase",letterSpacing:"0.08em"}},t.lastAttack),e("div",{style:{fontSize:20,fontWeight:700,marginTop:6}},lastA?fmt(lastA.date,lang):"—"),lastA&&e("div",{style:{display:"flex",gap:6,flexWrap:"wrap",marginTop:8,alignItems:"center"}},e("span",{style:{fontSize:10,fontWeight:700,textTransform:"uppercase",color:SEV[lastA.severity],background:`${SEV[lastA.severity]}18`,padding:"3px 10px",borderRadius:20}},t.sevLabels[lastA.severity]),e(WhoBadge,{addedBy:lastA.addedBy,profiles}))),
+          e("div",{style:card},e("div",{style:{fontSize:10,color:G.muted,textTransform:"uppercase",letterSpacing:"0.08em"}},t.lastInhaler),e("div",{style:{fontSize:20,fontWeight:700,marginTop:6}},lastI?fmt(lastI.date,lang):"—"),lastI&&e("div",{style:{display:"flex",gap:6,flexWrap:"wrap",marginTop:8,alignItems:"center"}},e("span",{style:{fontSize:12,color:G.mint}},`💨 ${t.breaths(lastI.breaths)}`),e(WhoBadge,{addedBy:lastI.addedBy,profiles})))
+        ),
+        e("div",{className:"fu",style:{animationDelay:"120ms"}},
+          e("div",{style:sec},t.weekly),
+          e("div",{style:{...card,padding:"20px 10px 16px"}},
+            e(ResponsiveContainer,{width:"100%",height:170},e(BarChart,{data:weekly,barSize:12},e(CartesianGrid,{strokeDasharray:"3 3",stroke:"rgba(255,255,255,0.05)",vertical:false}),e(XAxis,{dataKey:"label",tick:{fontSize:10,fill:G.muted},axisLine:false,tickLine:false}),e(YAxis,{tick:{fontSize:10,fill:G.muted},axisLine:false,tickLine:false,allowDecimals:false,width:20}),e(Tooltip,{content:e(CTip)}),e(Bar,{dataKey:"mild",name:t.sevLabels.mild,stackId:"a",fill:SEV.mild,opacity:0.85}),e(Bar,{dataKey:"moderate",name:t.sevLabels.moderate,stackId:"a",fill:SEV.moderate,opacity:0.85}),e(Bar,{dataKey:"severe",name:t.sevLabels.severe,stackId:"a",fill:SEV.severe,radius:[4,4,0,0],opacity:0.85}))),
+            e("div",{style:{display:"flex",justifyContent:"center",gap:20,marginTop:8}},["mild","moderate","severe"].map(s=>e("div",{key:s,style:{display:"flex",alignItems:"center",gap:5}},e("div",{style:{width:8,height:8,borderRadius:2,background:SEV[s]}}),e("span",{style:{fontSize:10,color:G.muted}},t.sevLabels[s]))))
+          )
+        ),
+        e("div",{className:"fu",style:{animationDelay:"160ms"}},
+          e("div",{style:sec},t.inhalerStatus),
+          e("div",{style:card},e("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}},[[t.dosage,data.inhalerInfo.dosage,null],[t.lastCleaned,fmt(data.inhalerInfo.lastCleaned,lang),null],[t.daysSinceClean,`${ds}${t.d}`,overdue?G.coral:soon?G.amber:G.mint],[t.cleanInterval,`${data.inhalerInfo.cleaningIntervalDays}${t.d}`,null]].map(([label,value,accent])=>e("div",{key:label},e("div",{style:{fontSize:10,color:G.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:4}},label),e("div",{style:{fontSize:15,fontWeight:600,color:accent||G.text}},value)))))
+        )
+      ),
+
+      tab==="attacks" && e("div",null,
+        e("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:20}},e("div",{style:sec},t.attackLog),e("span",{style:{fontSize:12,color:G.muted}},`${data.attacks.length} ${t.total}`)),
+        [...data.attacks].reverse().map((a,i)=>e("div",{key:a.id,className:"fu",style:{animationDelay:`${i*35}ms`,background:G.surface,border:`1px solid ${G.border}`,borderLeft:`3px solid ${SEV[a.severity]}`,borderRadius:16,padding:"14px 16px",marginBottom:10}},
+          e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}},
+            e("div",{style:{flex:1}},e("div",{style:{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}},e("div",{style:{fontWeight:600,fontSize:15}},fmt(a.date,lang)),e(WhoBadge,{addedBy:a.addedBy,profiles})),e("div",{style:{fontSize:12,color:G.muted,marginTop:4}},`⏱ ${t.duration(a.duration)}`),a.notes&&e("div",{style:{fontSize:12,color:G.sub,marginTop:5,fontStyle:"italic",opacity:0.75}},a.notes)),
+            e("span",{style:{fontSize:10,fontWeight:700,textTransform:"uppercase",color:SEV[a.severity],background:`${SEV[a.severity]}18`,padding:"4px 10px",borderRadius:20,letterSpacing:"0.06em",flexShrink:0,marginLeft:8}},t.sevLabels[a.severity])
+          )
+        ))
+      ),
+
+      tab==="inhaler" && e("div",null,
+        e("div",{style:sec},t.deviceSettings),
+        e("div",{style:{...card,marginBottom:24}},
+          [[t.dosage,"dosage","text",t.dosageP],[t.lastCleaned,"lastCleaned","date",""],[t.cleanEvery,"cleaningIntervalDays","number",""]].map(([label,key,type,ph])=>e("div",{key,style:{marginBottom:16}},e("div",{style:lbl},label),e("input",{type,value:iif[key],onChange:ev=>setIif(f=>({...f,[key]:type==="number"?Number(ev.target.value):ev.target.value})),placeholder:ph,style:IS()}))),
+          e("button",{onClick:saveII,style:{width:"100%",padding:"14px",borderRadius:14,border:"none",background:`linear-gradient(135deg,${G.mint},${G.mint}cc)`,color:"#0a0f1e",fontWeight:700,fontSize:15,cursor:"pointer"}},t.saveSettings)
+        ),
+        e("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:12}},e("div",{style:sec},t.inhalerLog),e("span",{style:{fontSize:12,color:G.muted}},`${data.inhalerLogs.length} ${t.uses}`)),
+        [...data.inhalerLogs].reverse().map((l,i)=>e("div",{key:l.id,className:"fu",style:{animationDelay:`${i*35}ms`,background:G.surface,border:`1px solid ${G.border}`,borderLeft:`3px solid ${G.mint}`,borderRadius:16,padding:"14px 16px",marginBottom:10}},
+          e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},e("div",null,e("div",{style:{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}},e("div",{style:{fontWeight:600}},fmt(l.date,lang)),e(WhoBadge,{addedBy:l.addedBy,profiles})),e("div",{style:{fontSize:12,color:G.muted,marginTop:4}},`💨 ${t.breaths(l.breaths)}`)),e("div",{style:{fontSize:13,color:G.mint,fontWeight:600,background:"rgba(78,205,196,0.1)",padding:"4px 12px",borderRadius:20}},l.dosage))
+        ))
+      ),
+
+      tab==="insights" && e("div",null,
+        e("div",{className:"fu",style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:20}},
+          [[avgD,t.m,t.avgDur,G.amber],[sevN,"",t.sevEps,G.coral],[avgB,t.br,t.avgBr,G.mint]].map(([value,unit,label,color])=>e("div",{key:label,style:{background:`${color}0d`,border:`1px solid ${color}30`,borderRadius:16,padding:"14px 10px",textAlign:"center"}},e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:24,fontWeight:700,color,lineHeight:1}},value,e("span",{style:{fontSize:12}},unit)),e("div",{style:{fontSize:9,color:G.muted,marginTop:6,textTransform:"uppercase",letterSpacing:"0.05em",lineHeight:1.3}},label)))
+        ),
+        e("div",{className:"fu",style:{animationDelay:"60ms"}},
+          e("div",{style:sec},t.durationTrend),
+          e("div",{style:{...card,padding:"20px 10px 12px",marginBottom:20}},
+            e(ResponsiveContainer,{width:"100%",height:160},e(LineChart,{data:durTrend},e("defs",null,e("linearGradient",{id:"lg",x1:"0",y1:"0",x2:"1",y2:"0"},e("stop",{offset:"0%",stopColor:G.amber}),e("stop",{offset:"100%",stopColor:G.coral}))),e(CartesianGrid,{strokeDasharray:"3 3",stroke:"rgba(255,255,255,0.05)",vertical:false}),e(XAxis,{dataKey:"date",tick:{fontSize:10,fill:G.muted},axisLine:false,tickLine:false}),e(YAxis,{tick:{fontSize:10,fill:G.muted},axisLine:false,tickLine:false,unit:t.m,width:26}),e(Tooltip,{content:e(CTip)}),e(Line,{type:"monotone",dataKey:"duration",stroke:"url(#lg)",strokeWidth:2.5,dot:{fill:G.amber,r:4,strokeWidth:0},activeDot:{r:6,fill:G.amber}})))
+          )
+        ),
+        e("div",{className:"fu",style:{animationDelay:"120ms"}},
+          e("div",{style:sec},t.sevDist),
+          e("div",{style:{...card,padding:"20px 10px 16px",marginBottom:20}},
+            e(ResponsiveContainer,{width:"100%",height:170},e(PieChart,null,e(Pie,{data:sevDist,cx:"50%",cy:"50%",innerRadius:45,outerRadius:70,dataKey:"value",paddingAngle:4},sevDist.map(s=>e(Cell,{key:s.name,fill:SEV[s.name]}))),e(Tooltip,{content:e(CTip),formatter:(v,n,p)=>[v,p.payload.label]}))),
+            e("div",{style:{display:"flex",justifyContent:"center",gap:20}},sevDist.map(s=>e("div",{key:s.name,style:{textAlign:"center"}},e("div",{style:{fontSize:18,fontWeight:700,color:SEV[s.name]}},s.value),e("div",{style:{fontSize:10,color:G.muted}},s.label))))
+          )
+        ),
+        e("div",{className:"fu",style:{animationDelay:"180ms"}},
+          e("div",{style:sec},t.obs),
+          [lastA&&[t.obs1(daysBetween(lastA.date,today()),t.sevLabels[lastA.severity])],[t.obs2(avgD)],sevN>0&&[t.obs3(sevN)],[t.obs4(data.inhalerLogs.length)]].filter(Boolean).map(([text],i)=>
+            e("div",{key:i,style:{display:"flex",gap:12,alignItems:"flex-start",background:G.surface,border:`1px solid ${G.border}`,borderRadius:14,padding:"14px 16px",marginBottom:10}},e("span",{style:{fontSize:18,flexShrink:0}},["📅","📈","🔴","💨"][i]),e("span",{style:{fontSize:13,color:G.sub,lineHeight:1.5}},text))
+          )
+        )
+      )
+    ),
+
+    // Modals
+    modal && e("div",{onClick:()=>setModal(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",zIndex:200,display:"flex",alignItems:"flex-end",backdropFilter:"blur(6px)"}},
+      e("div",{className:"su",onClick:ev=>ev.stopPropagation(),style:{background:"linear-gradient(180deg,#121827,#0d1220)",borderRadius:"28px 28px 0 0",padding:"28px 20px 52px",width:"100%",maxWidth:480,margin:"0 auto",border:`1px solid ${G.border}`,borderBottom:"none"}},
+        e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}},e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700}},modal==="attack"?t.attackModal:t.inhalerModal),e("button",{onClick:()=>setModal(null),style:{background:"rgba(255,255,255,0.07)",border:"none",borderRadius:50,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:G.muted,fontSize:16}},"✕")),
+        modal==="attack" && e("div",null,
+          e("div",{style:{marginBottom:16}},e("div",{style:lbl},t.date),e("input",{type:"date",value:af.date,onChange:ev=>setAf(f=>({...f,date:ev.target.value})),style:IS()})),
+          e("div",{style:{marginBottom:16}},e("div",{style:lbl},t.severity),e("div",{style:{display:"flex",gap:8}},["mild","moderate","severe"].map(s=>e("button",{key:s,onClick:()=>setAf(f=>({...f,severity:s})),style:{flex:1,padding:"10px 4px",border:`1.5px solid ${af.severity===s?SEV[s]:"rgba(255,255,255,0.1)"}`,borderRadius:12,background:af.severity===s?`${SEV[s]}22`:"transparent",color:af.severity===s?SEV[s]:G.muted,cursor:"pointer",fontSize:11,fontWeight:600,transition:"all 0.2s"}},t.sevLabels[s])))),
+          e("div",{style:{marginBottom:16}},e("div",{style:lbl},t.durLabel),e("input",{type:"number",value:af.duration,onChange:ev=>setAf(f=>({...f,duration:ev.target.value})),placeholder:t.durP,style:IS()})),
+          e("div",{style:{marginBottom:16}},e("div",{style:lbl},t.notes),e("textarea",{value:af.notes,onChange:ev=>setAf(f=>({...f,notes:ev.target.value})),placeholder:t.notesP,rows:3,style:IS({resize:"none"})})),
+          e("button",{onClick:addAttack,style:{width:"100%",padding:"15px",borderRadius:16,border:"none",background:`linear-gradient(135deg,${G.coral},${G.coral}cc)`,color:"#0a0f1e",fontWeight:700,fontSize:15,cursor:"pointer",boxShadow:`0 6px 24px ${G.coral}40`}},t.saveAttack)
+        ),
+        modal==="inhaler" && e("div",null,
+          e("div",{style:{marginBottom:16}},e("div",{style:lbl},t.date),e("input",{type:"date",value:inf.date,onChange:ev=>setInf(f=>({...f,date:ev.target.value})),style:IS()})),
+          e("div",{style:{marginBottom:16}},e("div",{style:lbl},t.numBreaths),e("div",{style:{display:"flex",gap:8}},[1,2,3,4,5].map(n=>e("button",{key:n,onClick:()=>setInf(f=>({...f,breaths:n})),style:{flex:1,padding:"12px 4px",border:`1.5px solid ${inf.breaths===n?G.mint:"rgba(255,255,255,0.1)"}`,borderRadius:12,background:inf.breaths===n?"rgba(78,205,196,0.15)":"transparent",color:inf.breaths===n?G.mint:G.muted,cursor:"pointer",fontSize:16,fontWeight:700,transition:"all 0.2s"}},n)))),
+          e("div",{style:{marginBottom:16}},e("div",{style:lbl},t.dosage),e("input",{value:inf.dosage,onChange:ev=>setInf(f=>({...f,dosage:ev.target.value})),placeholder:t.dosageP,style:IS()})),
+          e("button",{onClick:addInhaler,style:{width:"100%",padding:"15px",borderRadius:16,border:"none",background:`linear-gradient(135deg,${G.mint},${G.mint}cc)`,color:"#0a0f1e",fontWeight:700,fontSize:15,cursor:"pointer",boxShadow:`0 6px 24px ${G.mint}40`}},t.saveInhaler)
+        )
+      )
+    ),
+    showMgr && e(ManageModal,{lang,profiles,onSave:saveProfiles,onClose:()=>setShowMgr(false)})
+  );
+}
+
+createRoot(document.getElementById("root")).render(e(App));
+</script>
+
+<!--
+╔══════════════════════════════════════════════════════════════╗
+║         📋 FIREBASE SETUP — 10 minutes, free forever        ║
+╠══════════════════════════════════════════════════════════════╣
+║  1. https://console.firebase.google.com → Add project       ║
+║  2. Build → Realtime Database → Create → Test mode          ║
+║  3. Project Settings ⚙️ → Your apps → Web → Register        ║
+║  4. Copy firebaseConfig → paste into FIREBASE_CONFIG above  ║
+║                                                              ║
+║  HOSTING (share same URL between phones):                   ║
+║  → Netlify Drop: drag file to https://app.netlify.com/drop  ║
+║  → GitHub Pages: upload as index.html, enable Pages         ║
+║                                                              ║
+║  ADD TO HOME SCREEN:                                         ║
+║  → iPhone: Safari → Share → "Add to Home Screen"            ║
+║  → Android: Chrome → ⋮ → "Add to Home Screen"              ║
+╚══════════════════════════════════════════════════════════════╝
+-->
+</body>
+</html>
