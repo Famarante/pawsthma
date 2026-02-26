@@ -54,7 +54,7 @@ import { createRoot } from "https://esm.sh/react-dom@18/client";
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
-} from "https://esm.sh/recharts@2";
+} from "https://esm.sh/recharts@2?deps=react@18.3.1,react-dom@18.3.1";
 
 const FB_ON = FIREBASE_CONFIG.apiKey !== "PASTE_YOUR_API_KEY_HERE";
 let fbLoad = null, fbSave = null, fbSubscribe = null;
@@ -191,6 +191,41 @@ const fmt = (d,lang) => new Date(d).toLocaleDateString(lang==="pt"?"pt-PT":"en-G
 const daysBetween = (a,b) => Math.round((new Date(b)-new Date(a))/86400000);
 const nextId = (arr) => arr.length ? Math.max(...arr.map(x=>x.id))+1 : 1;
 const mkId = () => "p"+Math.random().toString(36).slice(2,7);
+const normProfiles = (profiles) => {
+  if (!Array.isArray(profiles)) return null;
+  return profiles
+    .filter(Boolean)
+    .map((p,idx)=>({
+      id: typeof p.id === "string" && p.id ? p.id : mkId(),
+      name: (p.name||"").toString(),
+      emoji: p.emoji || EMOJIS[idx%EMOJIS.length],
+      color: p.color || PCOLS[idx%PCOLS.length],
+    }));
+};
+const mkCat = (idx,name,data={}) => ({
+  id: data.id || `c${idx+1}`,
+  name: (name || data.name || `Cat ${idx+1}`).toString(),
+  attacks: Array.isArray(data.attacks) ? data.attacks : [],
+  inhalerLogs: Array.isArray(data.inhalerLogs) ? data.inhalerLogs : [],
+  inhalerInfo: { ...DEFAULT.inhalerInfo, ...(data.inhalerInfo || {}) },
+});
+const normalizeData = (raw) => {
+  const src = raw && typeof raw === "object" ? raw : {};
+  const profiles = normProfiles(src.profiles);
+  const legacyCat = mkCat(0, "Milo", src);
+  const cats = Array.isArray(src.cats) && src.cats.length
+    ? src.cats.map((c,idx)=>mkCat(idx,c?.name,c))
+    : [legacyCat];
+  return {
+    profiles,
+    cats,
+    auth: {
+      household: (src.auth?.household || "").toString(),
+      pin: (src.auth?.pin || "").toString(),
+    },
+  };
+};
+
 const IS = (extra={}) => ({width:"100%",padding:"12px 14px",borderRadius:12,border:`1px solid ${G.border}`,color:G.text,fontSize:15,outline:"none",boxSizing:"border-box",background:"rgba(255,255,255,0.04)",...extra});
 
 function EmojiPicker({value,onChange,color}){
@@ -293,6 +328,50 @@ function UserPicker({lang,profiles,onChoose}){
   );
 }
 
+function LoginGate({onSubmit,existing}){
+  const [household,setHousehold] = useState(existing?.household||"");
+  const [pin,setPin] = useState("");
+  const [err,setErr] = useState(null);
+  const firstTime = !existing?.household;
+  const submit = () => {
+    if(!household.trim()){ setErr("Please enter a household name"); return; }
+    if(!pin.trim()){ setErr("Please enter a PIN"); return; }
+    onSubmit({household:household.trim(), pin:pin.trim(), firstTime});
+  };
+  return e("div",{style:{background:G.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:16}},
+    e("div",{style:{width:"100%",maxWidth:400,background:G.surface,border:`1px solid ${G.border}`,borderRadius:22,padding:20}},
+      e("div",{style:{fontSize:36,textAlign:"center",marginBottom:8}},"🔐"),
+      e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:24,fontWeight:700,textAlign:"center",marginBottom:8}},firstTime?"Create household login":"Household login"),
+      e("div",{style:{fontSize:13,color:G.muted,textAlign:"center",marginBottom:16}},"Use this login to load family profiles and cats."),
+      e("div",{style:{marginBottom:12}}, e("input",{value:household,onChange:ev=>{setHousehold(ev.target.value);setErr(null);},placeholder:"Household name",style:IS()})),
+      e("div",{style:{marginBottom:14}}, e("input",{type:"password",value:pin,onChange:ev=>{setPin(ev.target.value);setErr(null);},placeholder:"PIN",style:IS()})),
+      err && e("div",{style:{fontSize:12,color:G.coral,marginBottom:12}},err),
+      e("button",{onClick:submit,style:{width:"100%",padding:"13px",borderRadius:14,border:"none",background:`linear-gradient(135deg,${G.amber},#e8890c)`,color:"#0a0f1e",fontWeight:700,cursor:"pointer"}}, firstTime?"Create & continue":"Login")
+    )
+  );
+}
+
+function CatPicker({cats,onChoose,onAdd}){
+  const [name,setName] = useState("");
+  return e("div",{style:{background:G.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:16}},
+    e("div",{style:{width:"100%",maxWidth:430}},
+      e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:25,fontWeight:700,textAlign:"center",marginBottom:8}},"Choose your cat"),
+      e("div",{style:{fontSize:13,color:G.muted,textAlign:"center",marginBottom:18}},"Each cat has its own asthma history."),
+      cats.map((c,idx)=>e("button",{key:c.id,onClick:()=>onChoose(c.id),style:{width:"100%",marginBottom:10,textAlign:"left",padding:"14px 16px",borderRadius:16,border:`1px solid ${G.border}`,background:G.surface,color:G.text,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}},
+        e("span",{style:{display:"flex",alignItems:"center",gap:8}}, e("span",{style:{fontSize:22}},"🐱"), e("span",{style:{fontWeight:600}},c.name||`Cat ${idx+1}`)),
+        e("span",{style:{fontSize:12,color:G.muted}},`${(c.attacks||[]).length} attacks`)
+      )),
+      e("div",{style:{marginTop:14,padding:12,border:`1px solid ${G.border}`,borderRadius:16,background:G.surface}},
+        e("div",{style:{fontSize:12,color:G.muted,marginBottom:8}},"Add new cat"),
+        e("div",{style:{display:"flex",gap:8}},
+          e("input",{value:name,onChange:ev=>setName(ev.target.value),placeholder:"Cat name",style:IS({flex:1})}),
+          e("button",{onClick:()=>{ if(name.trim()){ onAdd(name.trim()); setName(""); } },style:{padding:"0 12px",borderRadius:12,border:"none",background:G.mint,color:"#0a0f1e",fontWeight:700,cursor:"pointer"}},"Add")
+        )
+      )
+    )
+  );
+}
+
 function WhoBadge({addedBy,profiles}){
   const p = profiles?.find(x=>x.id===addedBy);
   if(!p) return null;
@@ -312,6 +391,8 @@ function App(){
   const t = T[lang];
   const [data,setData] = useState(null);
   const [uid,setUid]   = useState(null);
+  const [catId,setCatId] = useState(null);
+  const [authed,setAuthed] = useState(false);
   const [sync,setSync] = useState("loading");
   const [secs,setSecs] = useState(0);
   const [lastSt,setLastSt] = useState(null);
@@ -330,10 +411,12 @@ function App(){
         try{
           let remote = await fbLoad();
           if(!remote){ remote={...DEFAULT}; await fbSave(remote); }
-          setData(remote); setIif(remote.inhalerInfo); dr.current=remote;
+          const normalized = normalizeData(remote);
+          setData(normalized); dr.current=normalized;
           setSync("live"); setLastSt(Date.now());
           fbSubscribe(inc=>{
-            setData(inc); setIif(inc.inhalerInfo); dr.current=inc;
+            const normalized = normalizeData(inc);
+            setData(normalized); dr.current=normalized;
             setSync("updated"); setLastSt(Date.now());
             setTimeout(()=>setSync("live"),2500);
           });
@@ -343,8 +426,8 @@ function App(){
       }else{ bootLocal(); }
     })();
     function bootLocal(){
-      const saved = lsLoad()||{...DEFAULT};
-      setData(saved); setIif(saved.inhalerInfo); dr.current=saved;
+      const saved = normalizeData(lsLoad()||{...DEFAULT});
+      setData(saved); dr.current=saved;
       setSync("demo");
     }
   },[]);
@@ -359,6 +442,16 @@ function App(){
     return()=>clearInterval(id);
   },[lastSt,sync]);
 
+  useEffect(()=>{
+    if(!data) return;
+    const cats = data.cats||[];
+    const currentCat = cats.find(c=>c.id===catId) || cats[0] || null;
+    if(currentCat){
+      setIif(currentCat.inhalerInfo);
+      if(!catId) setCatId(currentCat.id);
+    }
+  },[data,catId]);
+
   const doSave = async(updater)=>{
     const next=updater(dr.current);
     setData(next); dr.current=next;
@@ -370,34 +463,70 @@ function App(){
     }else{ lsSave(next); }
   };
 
-  const addAttack=async()=>{ if(!af.duration)return; await doSave(d=>({...d,attacks:[...d.attacks,{...af,id:nextId(d.attacks),duration:Number(af.duration),addedBy:uid}]})); setModal(null); setAf({date:today(),severity:"mild",duration:"",notes:""}); };
-  const addInhaler=async()=>{ await doSave(d=>({...d,inhalerLogs:[...d.inhalerLogs,{...inf,id:nextId(d.inhalerLogs),breaths:Number(inf.breaths),addedBy:uid}]})); setModal(null); };
-  const saveII=()=>doSave(d=>({...d,inhalerInfo:{...iif}}));
+  const saveAuth = async({household,pin,firstTime}) => {
+    const current = dr.current?.auth || {household:"",pin:""};
+    if(!firstTime && (current.household!==household || current.pin!==pin)) return false;
+    if(firstTime){ await doSave(d=>({...d,auth:{household,pin}})); }
+    setAuthed(true);
+    return true;
+  };
+
+  const addAttack=async()=>{
+    if(!af.duration || !catId) return;
+    await doSave(d=>({...d,cats:d.cats.map(c=>c.id===catId?{...c,attacks:[...c.attacks,{...af,id:nextId(c.attacks),duration:Number(af.duration),addedBy:uid}]}:c)}));
+    setModal(null); setAf({date:today(),severity:"mild",duration:"",notes:""});
+  };
+  const addInhaler=async()=>{
+    if(!catId) return;
+    await doSave(d=>({...d,cats:d.cats.map(c=>c.id===catId?{...c,inhalerLogs:[...c.inhalerLogs,{...inf,id:nextId(c.inhalerLogs),breaths:Number(inf.breaths),addedBy:uid}]}:c)}));
+    setModal(null);
+  };
+  const saveII=()=> catId && doSave(d=>({...d,cats:d.cats.map(c=>c.id===catId?{...c,inhalerInfo:{...iif}}:c)}));
   const saveProfiles=async(ps)=>{ await doSave(d=>({...d,profiles:ps})); setShowMgr(false); };
 
   const profiles=data?.profiles||null;
+  const cats=data?.cats||[];
+  const currentCat=cats.find(c=>c.id===catId)||null;
+
+  useEffect(()=>{
+    if(uid && profiles && !profiles.some(p=>p.id===uid)){
+      setUid(null);
+    }
+  },[uid,profiles]);
 
   if(!data) return e("div",{style:{background:G.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16}},
     e("div",{style:{fontSize:52}},"🐱"),
     e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:700}},"Pawsthma"),
     e("div",{className:"blink",style:{fontSize:13,color:G.muted}},"Loading…")
   );
+
+  if(!authed) return e(LoginGate,{existing:data.auth,onSubmit:async(payload)=>{
+    const ok=await saveAuth(payload);
+    if(!ok) alert("Invalid login details");
+  }});
+  if(!currentCat) return e(CatPicker,{cats,onChoose:setCatId,onAdd:async(name)=>{
+    const id = `c${Date.now().toString(36).slice(-5)}`;
+    await doSave(d=>({...d,cats:[...d.cats,mkCat(d.cats.length,name,{id,name})]}));
+    setCatId(id);
+  }});
   if(!profiles) return e(SetupScreen,{lang,onSave:ps=>doSave(d=>({...d,profiles:ps}))});
   if(!uid)      return e(UserPicker,{lang,profiles,onChoose:setUid});
 
-  const sorted=[...data.attacks].sort((a,b)=>a.date.localeCompare(b.date));
+  const attacks=Array.isArray(currentCat.attacks)?currentCat.attacks:[];
+  const inhalerLogs=Array.isArray(currentCat.inhalerLogs)?currentCat.inhalerLogs:[];
+  const sorted=[...attacks].sort((a,b)=>a.date.localeCompare(b.date));
   const weekly=(()=>{ const m={}; sorted.forEach(a=>{ const d=new Date(a.date); const w=new Date(d.setDate(d.getDate()-d.getDay())).toISOString().split("T")[0]; if(!m[w])m[w]={label:fmt(w,lang),mild:0,moderate:0,severe:0}; m[w][a.severity]++; }); return Object.values(m).slice(-6); })();
-  const sevDist=(()=>{ const c={mild:0,moderate:0,severe:0}; data.attacks.forEach(a=>c[a.severity]++); return Object.entries(c).map(([n,v])=>({name:n,label:t.sevLabels[n],value:v})).filter(x=>x.value>0); })();
+  const sevDist=(()=>{ const c={mild:0,moderate:0,severe:0}; attacks.forEach(a=>c[a.severity]++); return Object.entries(c).map(([n,v])=>({name:n,label:t.sevLabels[n],value:v})).filter(x=>x.value>0); })();
   const durTrend=sorted.map(a=>({date:fmt(a.date,lang),duration:a.duration}));
   const lastA=sorted[sorted.length-1];
-  const sortedI=[...data.inhalerLogs].sort((a,b)=>a.date.localeCompare(b.date));
+  const sortedI=[...inhalerLogs].sort((a,b)=>a.date.localeCompare(b.date));
   const lastI=sortedI[sortedI.length-1];
-  const ds=daysBetween(data.inhalerInfo.lastCleaned,today());
-  const overdue=ds>=data.inhalerInfo.cleaningIntervalDays;
-  const soon=!overdue&&ds>=data.inhalerInfo.cleaningIntervalDays-3;
-  const avgD=data.attacks.length?(data.attacks.reduce((s,a)=>s+a.duration,0)/data.attacks.length).toFixed(1):0;
-  const sevN=data.attacks.filter(a=>a.severity==="severe").length;
-  const avgB=(data.inhalerLogs.reduce((s,l)=>s+l.breaths,0)/(data.inhalerLogs.length||1)).toFixed(1);
+  const ds=daysBetween(currentCat.inhalerInfo.lastCleaned,today());
+  const overdue=ds>=currentCat.inhalerInfo.cleaningIntervalDays;
+  const soon=!overdue&&ds>=currentCat.inhalerInfo.cleaningIntervalDays-3;
+  const avgD=attacks.length?(attacks.reduce((s,a)=>s+a.duration,0)/attacks.length).toFixed(1):0;
+  const sevN=attacks.filter(a=>a.severity==="severe").length;
+  const avgB=(inhalerLogs.reduce((s,l)=>s+l.breaths,0)/(inhalerLogs.length||1)).toFixed(1);
   const me=profiles.find(p=>p.id===uid);
   const others=profiles.filter(p=>p.id!==uid);
   const myColor=me?.color||G.amber;
@@ -422,7 +551,8 @@ function App(){
             e("div",null,
               e("div",{style:{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}},
                 e("span",{style:{fontFamily:"'Playfair Display',serif",fontSize:17,fontWeight:700,lineHeight:1}},"Pawsthma"),
-                e("span",{onClick:()=>setUid(null),title:t.switchProfile,style:{fontSize:9,fontWeight:700,color:myColor,background:`${myColor}18`,border:`1px solid ${myColor}40`,padding:"3px 8px",borderRadius:10,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3}},`${me?.emoji} ${me?.name}`)
+                e("span",{onClick:()=>setUid(null),title:t.switchProfile,style:{fontSize:9,fontWeight:700,color:myColor,background:`${myColor}18`,border:`1px solid ${myColor}40`,padding:"3px 8px",borderRadius:10,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3}},`${me?.emoji} ${me?.name}`),
+                e("span",{onClick:()=>setCatId(null),title:"Switch cat",style:{fontSize:9,fontWeight:700,color:G.mint,background:`${G.mint}18`,border:`1px solid ${G.mint}40`,padding:"3px 8px",borderRadius:10,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3}},`🐱 ${currentCat.name}`)
               ),
               e("div",{style:{fontSize:9,color:G.muted,letterSpacing:"0.1em",textTransform:"uppercase",marginTop:2}},t.sub)
             )
@@ -456,12 +586,12 @@ function App(){
 
       tab==="dashboard" && e("div",null,
         others.length>0 && e("div",{className:"fu",style:{display:"flex",alignItems:"center",gap:10,background:"rgba(78,205,196,0.06)",border:"1px solid rgba(78,205,196,0.15)",borderRadius:14,padding:"10px 14px",marginBottom:16,fontSize:12,color:G.muted}},e("span",{style:{fontSize:16}},"🔄"),e("span",null,t.sharedWith(others.map(p=>`${p.emoji} ${p.name}`).join(", ")))),
-        (overdue||soon) && e("div",{className:"fu",style:{background:overdue?"rgba(255,107,107,0.12)":"rgba(245,166,35,0.1)",border:`1px solid ${overdue?"rgba(255,107,107,0.3)":G.bBright}`,borderRadius:16,padding:"14px 16px",marginBottom:16,display:"flex",gap:12,alignItems:"center"}},e("span",{style:{fontSize:22}},overdue?"🚨":"⚠️"),e("div",null,e("div",{style:{fontWeight:600,fontSize:13,color:overdue?G.coral:G.amber}},overdue?t.overdueAlert:t.soonAlert),e("div",{style:{fontSize:12,color:G.muted,marginTop:2}},t.daysSince(ds,data.inhalerInfo.cleaningIntervalDays)))),
+        (overdue||soon) && e("div",{className:"fu",style:{background:overdue?"rgba(255,107,107,0.12)":"rgba(245,166,35,0.1)",border:`1px solid ${overdue?"rgba(255,107,107,0.3)":G.bBright}`,borderRadius:16,padding:"14px 16px",marginBottom:16,display:"flex",gap:12,alignItems:"center"}},e("span",{style:{fontSize:22}},overdue?"🚨":"⚠️"),e("div",null,e("div",{style:{fontWeight:600,fontSize:13,color:overdue?G.coral:G.amber}},overdue?t.overdueAlert:t.soonAlert),e("div",{style:{fontSize:12,color:G.muted,marginTop:2}},t.daysSince(ds,currentCat.inhalerInfo.cleaningIntervalDays)))),
         e("div",{className:"fu",style:{animationDelay:"40ms",background:"linear-gradient(135deg,rgba(245,166,35,0.12),rgba(245,166,35,0.04))",border:`1px solid ${G.bBright}`,borderRadius:24,padding:"24px",marginBottom:16,position:"relative",overflow:"hidden"}},
           e("div",{style:{position:"absolute",top:-30,right:-30,width:140,height:140,borderRadius:"50%",background:"radial-gradient(circle,rgba(245,166,35,0.15),transparent 70%)"}}),
           e("div",{style:{fontSize:11,color:G.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}},t.totalAttacks),
-          e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:60,fontWeight:700,color:G.amber,lineHeight:1}},data.attacks.length),
-          e("div",{style:{display:"flex",gap:20,marginTop:16}},["mild","moderate","severe"].map(s=>e("div",{key:s},e("div",{style:{fontSize:20,fontWeight:700,color:SEV[s]}},data.attacks.filter(a=>a.severity===s).length),e("div",{style:{fontSize:10,color:G.muted}},t.sevLabels[s]))))
+          e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:60,fontWeight:700,color:G.amber,lineHeight:1}},attacks.length),
+          e("div",{style:{display:"flex",gap:20,marginTop:16}},["mild","moderate","severe"].map(s=>e("div",{key:s},e("div",{style:{fontSize:20,fontWeight:700,color:SEV[s]}},attacks.filter(a=>a.severity===s).length),e("div",{style:{fontSize:10,color:G.muted}},t.sevLabels[s]))))
         ),
         e("div",{className:"fu",style:{animationDelay:"80ms",display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:20}},
           e("div",{style:card},e("div",{style:{fontSize:10,color:G.muted,textTransform:"uppercase",letterSpacing:"0.08em"}},t.lastAttack),e("div",{style:{fontSize:20,fontWeight:700,marginTop:6}},lastA?fmt(lastA.date,lang):"—"),lastA&&e("div",{style:{display:"flex",gap:6,flexWrap:"wrap",marginTop:8,alignItems:"center"}},e("span",{style:{fontSize:10,fontWeight:700,textTransform:"uppercase",color:SEV[lastA.severity],background:`${SEV[lastA.severity]}18`,padding:"3px 10px",borderRadius:20}},t.sevLabels[lastA.severity]),e(WhoBadge,{addedBy:lastA.addedBy,profiles}))),
@@ -476,13 +606,13 @@ function App(){
         ),
         e("div",{className:"fu",style:{animationDelay:"160ms"}},
           e("div",{style:sec},t.inhalerStatus),
-          e("div",{style:card},e("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}},[[t.dosage,data.inhalerInfo.dosage,null],[t.lastCleaned,fmt(data.inhalerInfo.lastCleaned,lang),null],[t.daysSinceClean,`${ds}${t.d}`,overdue?G.coral:soon?G.amber:G.mint],[t.cleanInterval,`${data.inhalerInfo.cleaningIntervalDays}${t.d}`,null]].map(([label,value,accent])=>e("div",{key:label},e("div",{style:{fontSize:10,color:G.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:4}},label),e("div",{style:{fontSize:15,fontWeight:600,color:accent||G.text}},value)))))
+          e("div",{style:card},e("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}},[[t.dosage,currentCat.inhalerInfo.dosage,null],[t.lastCleaned,fmt(currentCat.inhalerInfo.lastCleaned,lang),null],[t.daysSinceClean,`${ds}${t.d}`,overdue?G.coral:soon?G.amber:G.mint],[t.cleanInterval,`${currentCat.inhalerInfo.cleaningIntervalDays}${t.d}`,null]].map(([label,value,accent])=>e("div",{key:label},e("div",{style:{fontSize:10,color:G.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:4}},label),e("div",{style:{fontSize:15,fontWeight:600,color:accent||G.text}},value)))))
         )
       ),
 
       tab==="attacks" && e("div",null,
-        e("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:20}},e("div",{style:sec},t.attackLog),e("span",{style:{fontSize:12,color:G.muted}},`${data.attacks.length} ${t.total}`)),
-        [...data.attacks].reverse().map((a,i)=>e("div",{key:a.id,className:"fu",style:{animationDelay:`${i*35}ms`,background:G.surface,border:`1px solid ${G.border}`,borderLeft:`3px solid ${SEV[a.severity]}`,borderRadius:16,padding:"14px 16px",marginBottom:10}},
+        e("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:20}},e("div",{style:sec},t.attackLog),e("span",{style:{fontSize:12,color:G.muted}},`${attacks.length} ${t.total}`)),
+        [...attacks].reverse().map((a,i)=>e("div",{key:a.id,className:"fu",style:{animationDelay:`${i*35}ms`,background:G.surface,border:`1px solid ${G.border}`,borderLeft:`3px solid ${SEV[a.severity]}`,borderRadius:16,padding:"14px 16px",marginBottom:10}},
           e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}},
             e("div",{style:{flex:1}},e("div",{style:{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}},e("div",{style:{fontWeight:600,fontSize:15}},fmt(a.date,lang)),e(WhoBadge,{addedBy:a.addedBy,profiles})),e("div",{style:{fontSize:12,color:G.muted,marginTop:4}},`⏱ ${t.duration(a.duration)}`),a.notes&&e("div",{style:{fontSize:12,color:G.sub,marginTop:5,fontStyle:"italic",opacity:0.75}},a.notes)),
             e("span",{style:{fontSize:10,fontWeight:700,textTransform:"uppercase",color:SEV[a.severity],background:`${SEV[a.severity]}18`,padding:"4px 10px",borderRadius:20,letterSpacing:"0.06em",flexShrink:0,marginLeft:8}},t.sevLabels[a.severity])
@@ -496,8 +626,8 @@ function App(){
           [[t.dosage,"dosage","text",t.dosageP],[t.lastCleaned,"lastCleaned","date",""],[t.cleanEvery,"cleaningIntervalDays","number",""]].map(([label,key,type,ph])=>e("div",{key,style:{marginBottom:16}},e("div",{style:lbl},label),e("input",{type,value:iif[key],onChange:ev=>setIif(f=>({...f,[key]:type==="number"?Number(ev.target.value):ev.target.value})),placeholder:ph,style:IS()}))),
           e("button",{onClick:saveII,style:{width:"100%",padding:"14px",borderRadius:14,border:"none",background:`linear-gradient(135deg,${G.mint},${G.mint}cc)`,color:"#0a0f1e",fontWeight:700,fontSize:15,cursor:"pointer"}},t.saveSettings)
         ),
-        e("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:12}},e("div",{style:sec},t.inhalerLog),e("span",{style:{fontSize:12,color:G.muted}},`${data.inhalerLogs.length} ${t.uses}`)),
-        [...data.inhalerLogs].reverse().map((l,i)=>e("div",{key:l.id,className:"fu",style:{animationDelay:`${i*35}ms`,background:G.surface,border:`1px solid ${G.border}`,borderLeft:`3px solid ${G.mint}`,borderRadius:16,padding:"14px 16px",marginBottom:10}},
+        e("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:12}},e("div",{style:sec},t.inhalerLog),e("span",{style:{fontSize:12,color:G.muted}},`${inhalerLogs.length} ${t.uses}`)),
+        [...inhalerLogs].reverse().map((l,i)=>e("div",{key:l.id,className:"fu",style:{animationDelay:`${i*35}ms`,background:G.surface,border:`1px solid ${G.border}`,borderLeft:`3px solid ${G.mint}`,borderRadius:16,padding:"14px 16px",marginBottom:10}},
           e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},e("div",null,e("div",{style:{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}},e("div",{style:{fontWeight:600}},fmt(l.date,lang)),e(WhoBadge,{addedBy:l.addedBy,profiles})),e("div",{style:{fontSize:12,color:G.muted,marginTop:4}},`💨 ${t.breaths(l.breaths)}`)),e("div",{style:{fontSize:13,color:G.mint,fontWeight:600,background:"rgba(78,205,196,0.1)",padding:"4px 12px",borderRadius:20}},l.dosage))
         ))
       ),
@@ -521,7 +651,7 @@ function App(){
         ),
         e("div",{className:"fu",style:{animationDelay:"180ms"}},
           e("div",{style:sec},t.obs),
-          [lastA&&[t.obs1(daysBetween(lastA.date,today()),t.sevLabels[lastA.severity])],[t.obs2(avgD)],sevN>0&&[t.obs3(sevN)],[t.obs4(data.inhalerLogs.length)]].filter(Boolean).map(([text],i)=>
+          [lastA&&[t.obs1(daysBetween(lastA.date,today()),t.sevLabels[lastA.severity])],[t.obs2(avgD)],sevN>0&&[t.obs3(sevN)],[t.obs4(inhalerLogs.length)]].filter(Boolean).map(([text],i)=>
             e("div",{key:i,style:{display:"flex",gap:12,alignItems:"flex-start",background:G.surface,border:`1px solid ${G.border}`,borderRadius:14,padding:"14px 16px",marginBottom:10}},e("span",{style:{fontSize:18,flexShrink:0}},["📅","📈","🔴","💨"][i]),e("span",{style:{fontSize:13,color:G.sub,lineHeight:1.5}},text))
           )
         )
