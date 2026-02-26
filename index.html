@@ -168,6 +168,9 @@ const T = {
     authTitle:"Account Login", authEmail:"Email", authPassword:"Password", authSignIn:"Sign in", authSignUp:"Create account", authSwitchToSignUp:"Need an account? Create one", authSwitchToSignIn:"Have an account? Sign in", authError:"Authentication failed", authConfigMissing:"Firebase Auth is not configured. Enable Authentication and Email/Password provider in Firebase Console.", authInvalidCreds:"Invalid email or password.", authWeakPassword:"Password should be at least 6 characters.", householdAccessDenied:"Could not access this household. Check Firebase Realtime Database rules for /pawsthma/users/$uid and /pawsthma/households/$householdKey.", profileLinking:"Linking your profile to this household…",
     loginCreate:"Access household", loginEnter:"Access household",
     loginSub:"Use this login to load family profiles and cats.",
+    chooseHousehold:"Choose a household",
+    addHousehold:"+ Add new household",
+    backToHouseholds:"← Back to households",
     householdName:"Household name", login:"Login",
     loginNeedHousehold:"Please enter a household name", signedInAs:(u)=>`Signed in as ${u}`,
     chooseCat:"Choose your cat", catHistorySub:"Each cat has its own asthma history.", addNewCat:"Add new cat", catName:"Cat name", add:"Add", catCount:(n)=>`${n} attack${n!==1?"s":""}`,
@@ -213,6 +216,9 @@ const T = {
     authTitle:"Iniciar sessão", authEmail:"Email", authPassword:"Palavra-passe", authSignIn:"Entrar", authSignUp:"Criar conta", authSwitchToSignUp:"Não tens conta? Cria uma", authSwitchToSignIn:"Já tens conta? Entrar", authError:"Falha na autenticação", authConfigMissing:"O Firebase Auth não está configurado. Ativa Authentication e o método Email/Password na consola Firebase.", authInvalidCreds:"Email ou palavra-passe inválidos.", authWeakPassword:"A palavra-passe deve ter pelo menos 6 caracteres.", householdAccessDenied:"Não foi possível aceder a esta casa. Verifica as regras da Realtime Database para /pawsthma/users/$uid e /pawsthma/households/$householdKey.", profileLinking:"A associar o teu perfil a esta casa…",
     loginCreate:"Aceder à casa", loginEnter:"Aceder à casa",
     loginSub:"Usa este acesso para carregar perfis e gatos da família.",
+    chooseHousehold:"Escolhe uma casa",
+    addHousehold:"+ Adicionar nova casa",
+    backToHouseholds:"← Voltar às casas",
     householdName:"Nome da casa", login:"Entrar",
     loginNeedHousehold:"Introduz o nome da casa", signedInAs:(u)=>`Sessão iniciada como ${u}`,
     chooseCat:"Escolhe o teu gato", catHistorySub:"Cada gato tem o seu histórico de asma.", addNewCat:"Adicionar novo gato", catName:"Nome do gato", add:"Adicionar", catCount:(n)=>`${n} crise${n!==1?"s":""}`,
@@ -425,13 +431,24 @@ function AuthGate({lang,setLang,onAuth}){
   );
 }
 
-function LoginGate({lang,setLang,onSubmit,existing,account}){
+function LoginGate({lang,setLang,onSubmit,existing,account,householdOptions=[]}){
   const t = T[lang];
+  const hasSavedHomes = householdOptions.length > 0;
   const [household,setHousehold] = useState(existing?.household||"");
+  const [selectedHousehold,setSelectedHousehold] = useState(householdOptions[0] || "");
+  const [addingNew,setAddingNew] = useState(!hasSavedHomes);
   const [err,setErr] = useState(null);
+  useEffect(()=>{
+    if(!hasSavedHomes){
+      setAddingNew(true);
+      return;
+    }
+    if(!householdOptions.includes(selectedHousehold)) setSelectedHousehold(householdOptions[0]);
+  },[hasSavedHomes,householdOptions,selectedHousehold]);
   const submit = () => {
-    if(!household.trim()){ setErr(t.loginNeedHousehold); return; }
-    onSubmit({household:household.trim()});
+    const target = addingNew ? household.trim() : selectedHousehold;
+    if(!target){ setErr(t.loginNeedHousehold); return; }
+    onSubmit({household:target});
   };
   return e("div",{style:{background:G.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:16,position:"relative"}},
     setLang && e(LangToggle,{lang,setLang}),
@@ -440,9 +457,14 @@ function LoginGate({lang,setLang,onSubmit,existing,account}){
       e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:24,fontWeight:700,textAlign:"center",marginBottom:8}},t.loginEnter),
       account && e("div",{style:{fontSize:12,color:G.muted,textAlign:"center",marginBottom:8}},t.signedInAs(account)),
       e("div",{style:{fontSize:13,color:G.muted,textAlign:"center",marginBottom:16}},t.loginSub),
-      e("div",{style:{marginBottom:12}}, e("input",{value:household,onChange:ev=>{setHousehold(ev.target.value);setErr(null);},placeholder:t.householdName,style:IS()})),
+      !addingNew && hasSavedHomes && e("div",{style:{marginBottom:12}},
+        e("div",{style:{fontSize:12,color:G.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.08em"}},t.chooseHousehold),
+        householdOptions.map(home=>e("button",{key:home,onClick:()=>{setSelectedHousehold(home);setErr(null);},style:{width:"100%",textAlign:"left",padding:"11px 12px",marginBottom:8,borderRadius:12,border:`1.5px solid ${selectedHousehold===home?G.amber:G.border}`,background:selectedHousehold===home?`${G.amber}1f`:"transparent",color:selectedHousehold===home?G.amber:G.text,cursor:"pointer",fontWeight:600}},`🏠 ${home}`))
+      ),
+      addingNew && e("div",{style:{marginBottom:12}}, e("input",{value:household,onChange:ev=>{setHousehold(ev.target.value);setErr(null);},placeholder:t.householdName,style:IS()})),
       err && e("div",{style:{fontSize:12,color:G.coral,marginBottom:12}},err),
-      e("button",{onClick:submit,style:{width:"100%",padding:"13px",borderRadius:14,border:"none",background:`linear-gradient(135deg,${G.amber},#e8890c)`,color:"#0a0f1e",fontWeight:700,cursor:"pointer"}}, t.login)
+      e("button",{onClick:submit,style:{width:"100%",padding:"13px",borderRadius:14,border:"none",background:`linear-gradient(135deg,${G.amber},#e8890c)`,color:"#0a0f1e",fontWeight:700,cursor:"pointer"}}, addingNew ? t.loginCreate : t.login),
+      hasSavedHomes && e("button",{onClick:()=>{setAddingNew(v=>!v);setErr(null);},style:{width:"100%",padding:"9px",background:"transparent",border:"none",color:G.muted,cursor:"pointer",fontSize:12,marginTop:8}},addingNew?t.backToHouseholds:t.addHousehold)
     )
   );
 }
@@ -781,11 +803,11 @@ function App(){
     e("div",{className:"blink",style:{fontSize:13,color:G.muted}},"Loading…")
   );
 
-  if(!authed) return e(LoginGate,{lang,setLang,account:user?.email||user?.displayName||"",existing:null,onSubmit:async(payload)=>{
+  if(!authed) return e(LoginGate,{lang,setLang,account:user?.email||user?.displayName||"",existing:null,householdOptions:userHomes,onSubmit:async(payload)=>{
     const res=await saveAuth(payload);
     if(!res.ok) alert(res.reason==="permission"?t.householdAccessDenied:t.authError);
   }});
-  if(!currentHome) return e(LoginGate,{lang,setLang,account:user?.email||user?.displayName||"",existing:null,onSubmit:async(payload)=>{
+  if(!currentHome) return e(LoginGate,{lang,setLang,account:user?.email||user?.displayName||"",existing:null,householdOptions:userHomes,onSubmit:async(payload)=>{
     const res=await saveAuth(payload);
     if(!res.ok) alert(res.reason==="permission"?t.householdAccessDenied:t.authError);
   }});
