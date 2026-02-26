@@ -162,7 +162,7 @@ const T = {
     namePlaceholder:"Name…", nameRequired:"Each profile needs a name",
     minProfiles:"Add at least one profile",
     manageProfiles:"Manage Profiles", editProfiles:"Edit Profiles", done:"Done",
-    authTitle:"Account Login", authEmail:"Email", authPassword:"Password", authSignIn:"Sign in", authSignUp:"Create account", authSwitchToSignUp:"Need an account? Create one", authSwitchToSignIn:"Have an account? Sign in", authError:"Authentication failed",
+    authTitle:"Account Login", authEmail:"Email", authPassword:"Password", authSignIn:"Sign in", authSignUp:"Create account", authSwitchToSignUp:"Need an account? Create one", authSwitchToSignIn:"Have an account? Sign in", authError:"Authentication failed", authConfigMissing:"Firebase Auth is not configured. Enable Authentication and Email/Password provider in Firebase Console.", authInvalidCreds:"Invalid email or password.", authWeakPassword:"Password should be at least 6 characters.",
     loginCreate:"Create household login", loginEnter:"Household login",
     loginSub:"Use this login to load family profiles and cats.",
     householdName:"Household name", pin:"PIN", createContinue:"Create & continue", login:"Login",
@@ -207,7 +207,7 @@ const T = {
     namePlaceholder:"Nome…", nameRequired:"Cada perfil precisa de um nome",
     minProfiles:"Adiciona pelo menos um perfil",
     manageProfiles:"Gerir Perfis", editProfiles:"Editar Perfis", done:"Concluir",
-    authTitle:"Iniciar sessão", authEmail:"Email", authPassword:"Palavra-passe", authSignIn:"Entrar", authSignUp:"Criar conta", authSwitchToSignUp:"Não tens conta? Cria uma", authSwitchToSignIn:"Já tens conta? Entrar", authError:"Falha na autenticação",
+    authTitle:"Iniciar sessão", authEmail:"Email", authPassword:"Palavra-passe", authSignIn:"Entrar", authSignUp:"Criar conta", authSwitchToSignUp:"Não tens conta? Cria uma", authSwitchToSignIn:"Já tens conta? Entrar", authError:"Falha na autenticação", authConfigMissing:"O Firebase Auth não está configurado. Ativa Authentication e o método Email/Password na consola Firebase.", authInvalidCreds:"Email ou palavra-passe inválidos.", authWeakPassword:"A palavra-passe deve ter pelo menos 6 caracteres.",
     loginCreate:"Criar acesso da casa", loginEnter:"Entrar na casa",
     loginSub:"Usa este acesso para carregar perfis e gatos da família.",
     householdName:"Nome da casa", pin:"PIN", createContinue:"Criar e continuar", login:"Entrar",
@@ -407,8 +407,8 @@ function AuthGate({lang,setLang,onAuth}){
   const [err,setErr] = useState(null);
   const submit = async()=>{
     if(!email.trim()||!password){ setErr(t.authError); return; }
-    const ok = await onAuth(email.trim(),password,signup);
-    if(!ok) setErr(t.authError);
+    const errMsg = await onAuth(email.trim(),password,signup);
+    if(errMsg) setErr(errMsg);
   };
   return e("div",{style:{background:G.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:16,position:"relative"}},
     setLang && e(LangToggle,{lang,setLang}),
@@ -587,14 +587,19 @@ function App(){
   };
 
   const handleUserAuth = async(email,password,signup)=>{
-    if(!fbSignIn||!fbSignUp) return false;
+    if(!fbSignIn||!fbSignUp) return t.authConfigMissing;
     try{
       if(signup) await fbSignUp(email,password);
       else await fbSignIn(email,password);
-      return true;
+      return null;
     }catch(err){
       console.error(err);
-      return false;
+      const msg = `${err?.code||""} ${err?.message||""}`;
+      if(/CONFIGURATION_NOT_FOUND/i.test(msg)) return t.authConfigMissing;
+      if(/auth\/(invalid-credential|wrong-password|user-not-found)/i.test(msg)) return t.authInvalidCreds;
+      if(/auth\/weak-password/i.test(msg)) return t.authWeakPassword;
+      if(/auth\/operation-not-allowed/i.test(msg)) return t.authConfigMissing;
+      return t.authError;
     }
   };
   const logoutUser = async()=>{
