@@ -281,11 +281,16 @@ const normalizeData = (raw) => {
     if (hasLegacyPayload) {
       const legacyName = (src.auth?.household || "Home").toString();
       const key = householdKey(legacyName);
-      const legacyCat = mkCat(0, "Milo", src);
+      // Migration must not seed demo names for new users; only map explicit legacy cat identity when present.
+      const legacyCatName = [src.catName, src.cat?.name, src.name].find(v=>typeof v === "string" && v.trim());
+      const legacyCatId = [src.catId, src.cat?.id].find(v=>typeof v === "string" && v.trim());
+      const legacyCat = legacyCatName || legacyCatId
+        ? mkCat(0, legacyCatName || legacyCatId, { ...src, ...(legacyCatId ? { id: legacyCatId } : {}) })
+        : null;
       homes[key] = {
         name: legacyName,
         profiles: normProfiles(src.profiles),
-        cats: Array.isArray(src.cats) && src.cats.length ? src.cats.map((c,idx)=>mkCat(idx,c?.name,c)) : [legacyCat],
+        cats: Array.isArray(src.cats) && src.cats.length ? src.cats.map((c,idx)=>mkCat(idx,c?.name,c)) : (legacyCat ? [legacyCat] : []),
       };
     }
   }
