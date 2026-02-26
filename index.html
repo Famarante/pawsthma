@@ -123,6 +123,12 @@ const T = {
     namePlaceholder:"Name…", nameRequired:"Each profile needs a name",
     minProfiles:"Add at least one profile",
     manageProfiles:"Manage Profiles", editProfiles:"Edit Profiles", done:"Done",
+    loginCreate:"Create household login", loginEnter:"Household login",
+    loginSub:"Use this login to load family profiles and cats.",
+    householdName:"Household name", pin:"PIN", createContinue:"Create & continue", login:"Login",
+    loginNeedHousehold:"Please enter a household name", loginNeedPin:"Please enter a PIN", invalidPin:"Invalid PIN for this household",
+    chooseCat:"Choose your cat", catHistorySub:"Each cat has its own asthma history.", addNewCat:"Add new cat", catName:"Cat name", add:"Add",
+    firstCatTitle:"Setup your first cat", firstCatSub:"Every household starts by configuring at least one cat.", firstCatRequired:"Please add your first cat name", saveCat:"Save cat",
     demoWarning:"Demo mode: data is only saved on this device. To sync between phones, add your Firebase config.",
   },
   pt: {
@@ -161,6 +167,12 @@ const T = {
     namePlaceholder:"Nome…", nameRequired:"Cada perfil precisa de um nome",
     minProfiles:"Adiciona pelo menos um perfil",
     manageProfiles:"Gerir Perfis", editProfiles:"Editar Perfis", done:"Concluir",
+    loginCreate:"Criar acesso da casa", loginEnter:"Entrar na casa",
+    loginSub:"Usa este acesso para carregar perfis e gatos da família.",
+    householdName:"Nome da casa", pin:"PIN", createContinue:"Criar e continuar", login:"Entrar",
+    loginNeedHousehold:"Introduz o nome da casa", loginNeedPin:"Introduz o PIN", invalidPin:"PIN inválido para esta casa",
+    chooseCat:"Escolhe o teu gato", catHistorySub:"Cada gato tem o seu histórico de asma.", addNewCat:"Adicionar novo gato", catName:"Nome do gato", add:"Adicionar",
+    firstCatTitle:"Configura o primeiro gato", firstCatSub:"Cada casa começa por configurar pelo menos um gato.", firstCatRequired:"Adiciona o nome do primeiro gato", saveCat:"Guardar gato",
     demoWarning:"Modo demo: os dados são guardados apenas neste dispositivo. Para sincronizar entre telemóveis, adiciona a configuração Firebase.",
   },
 };
@@ -350,45 +362,47 @@ function UserPicker({lang,setLang,profiles,onChoose}){
 }
 
 function LoginGate({lang,setLang,onSubmit,existing}){
+  const t = T[lang];
   const [household,setHousehold] = useState(existing?.household||"");
   const [pin,setPin] = useState("");
   const [err,setErr] = useState(null);
   const firstTime = !existing?.household;
   const submit = () => {
-    if(!household.trim()){ setErr("Please enter a household name"); return; }
-    if(!pin.trim()){ setErr("Please enter a PIN"); return; }
+    if(!household.trim()){ setErr(t.loginNeedHousehold); return; }
+    if(!pin.trim()){ setErr(t.loginNeedPin); return; }
     onSubmit({household:household.trim(), pin:pin.trim(), firstTime});
   };
   return e("div",{style:{background:G.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:16,position:"relative"}},
     setLang && e(LangToggle,{lang,setLang}),
     e("div",{style:{width:"100%",maxWidth:400,background:G.surface,border:`1px solid ${G.border}`,borderRadius:22,padding:20}},
       e("div",{style:{fontSize:36,textAlign:"center",marginBottom:8}},"🔐"),
-      e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:24,fontWeight:700,textAlign:"center",marginBottom:8}},firstTime?"Create household login":"Household login"),
-      e("div",{style:{fontSize:13,color:G.muted,textAlign:"center",marginBottom:16}},"Use this login to load family profiles and cats."),
-      e("div",{style:{marginBottom:12}}, e("input",{value:household,onChange:ev=>{setHousehold(ev.target.value);setErr(null);},placeholder:"Household name",style:IS()})),
-      e("div",{style:{marginBottom:14}}, e("input",{type:"password",value:pin,onChange:ev=>{setPin(ev.target.value);setErr(null);},placeholder:"PIN",style:IS()})),
+      e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:24,fontWeight:700,textAlign:"center",marginBottom:8}},firstTime?t.loginCreate:t.loginEnter),
+      e("div",{style:{fontSize:13,color:G.muted,textAlign:"center",marginBottom:16}},t.loginSub),
+      e("div",{style:{marginBottom:12}}, e("input",{value:household,onChange:ev=>{setHousehold(ev.target.value);setErr(null);},placeholder:t.householdName,style:IS()})),
+      e("div",{style:{marginBottom:14}}, e("input",{type:"password",value:pin,onChange:ev=>{setPin(ev.target.value);setErr(null);},placeholder:t.pin,style:IS()})),
       err && e("div",{style:{fontSize:12,color:G.coral,marginBottom:12}},err),
-      e("button",{onClick:submit,style:{width:"100%",padding:"13px",borderRadius:14,border:"none",background:`linear-gradient(135deg,${G.amber},#e8890c)`,color:"#0a0f1e",fontWeight:700,cursor:"pointer"}}, firstTime?"Create & continue":"Login")
+      e("button",{onClick:submit,style:{width:"100%",padding:"13px",borderRadius:14,border:"none",background:`linear-gradient(135deg,${G.amber},#e8890c)`,color:"#0a0f1e",fontWeight:700,cursor:"pointer"}}, firstTime?t.createContinue:t.login)
     )
   );
 }
 
 function CatPicker({lang,setLang,cats,onChoose,onAdd}){
+  const t = T[lang];
   const [name,setName] = useState("");
   return e("div",{style:{background:G.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:16,position:"relative"}},
     setLang && e(LangToggle,{lang,setLang}),
     e("div",{style:{width:"100%",maxWidth:430}},
-      e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:25,fontWeight:700,textAlign:"center",marginBottom:8}},"Choose your cat"),
-      e("div",{style:{fontSize:13,color:G.muted,textAlign:"center",marginBottom:18}},"Each cat has its own asthma history."),
+      e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:25,fontWeight:700,textAlign:"center",marginBottom:8}},t.chooseCat),
+      e("div",{style:{fontSize:13,color:G.muted,textAlign:"center",marginBottom:18}},t.catHistorySub),
       cats.map((c,idx)=>e("button",{key:c.id,onClick:()=>onChoose(c.id),style:{width:"100%",marginBottom:10,textAlign:"left",padding:"14px 16px",borderRadius:16,border:`1px solid ${G.border}`,background:G.surface,color:G.text,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}},
         e("span",{style:{display:"flex",alignItems:"center",gap:8}}, e("span",{style:{fontSize:22}},"🐱"), e("span",{style:{fontWeight:600}},c.name||`Cat ${idx+1}`)),
         e("span",{style:{fontSize:12,color:G.muted}},`${(c.attacks||[]).length} attacks`)
       )),
       e("div",{style:{marginTop:14,padding:12,border:`1px solid ${G.border}`,borderRadius:16,background:G.surface}},
-        e("div",{style:{fontSize:12,color:G.muted,marginBottom:8}},"Add new cat"),
+        e("div",{style:{fontSize:12,color:G.muted,marginBottom:8}},t.addNewCat),
         e("div",{style:{display:"flex",gap:8}},
-          e("input",{value:name,onChange:ev=>setName(ev.target.value),placeholder:"Cat name",style:IS({flex:1})}),
-          e("button",{onClick:()=>{ if(name.trim()){ onAdd(name.trim()); setName(""); } },style:{padding:"0 12px",borderRadius:12,border:"none",background:G.mint,color:"#0a0f1e",fontWeight:700,cursor:"pointer"}},"Add")
+          e("input",{value:name,onChange:ev=>setName(ev.target.value),placeholder:t.catName,style:IS({flex:1})}),
+          e("button",{onClick:()=>{ if(name.trim()){ onAdd(name.trim()); setName(""); } },style:{padding:"0 12px",borderRadius:12,border:"none",background:G.mint,color:"#0a0f1e",fontWeight:700,cursor:"pointer"}},t.add)
         )
       )
     )
@@ -396,20 +410,21 @@ function CatPicker({lang,setLang,cats,onChoose,onAdd}){
 }
 
 function CatSetupScreen({lang,setLang,onSave}){
+  const t = T[lang];
   const [name,setName] = useState("");
   const [err,setErr] = useState(null);
   const save = ()=>{
-    if(!name.trim()){ setErr("Please add your first cat name"); return; }
+    if(!name.trim()){ setErr(t.firstCatRequired); return; }
     onSave(name.trim());
   };
   return e("div",{style:{background:G.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:16,position:"relative"}},
     setLang && e(LangToggle,{lang,setLang}),
     e("div",{style:{width:"100%",maxWidth:420,background:G.surface,border:`1px solid ${G.border}`,borderRadius:20,padding:20}},
-      e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:25,fontWeight:700,textAlign:"center",marginBottom:8}},"Setup your first cat"),
-      e("div",{style:{fontSize:13,color:G.muted,textAlign:"center",marginBottom:14}},"Every household starts by configuring at least one cat."),
-      e("input",{value:name,onChange:ev=>{setName(ev.target.value);setErr(null);},placeholder:"Cat name",style:IS({marginBottom:12})}),
+      e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:25,fontWeight:700,textAlign:"center",marginBottom:8}},t.firstCatTitle),
+      e("div",{style:{fontSize:13,color:G.muted,textAlign:"center",marginBottom:14}},t.firstCatSub),
+      e("input",{value:name,onChange:ev=>{setName(ev.target.value);setErr(null);},placeholder:t.catName,style:IS({marginBottom:12})}),
       err && e("div",{style:{fontSize:12,color:G.coral,marginBottom:10}},err),
-      e("button",{onClick:save,style:{width:"100%",padding:"13px",borderRadius:14,border:"none",background:`linear-gradient(135deg,${G.mint},${G.mint}cc)`,color:"#0a0f1e",fontWeight:700,cursor:"pointer"}},"Save cat")
+      e("button",{onClick:save,style:{width:"100%",padding:"13px",borderRadius:14,border:"none",background:`linear-gradient(135deg,${G.mint},${G.mint}cc)`,color:"#0a0f1e",fontWeight:700,cursor:"pointer"}},t.saveCat)
     )
   );
 }
@@ -571,11 +586,11 @@ function App(){
 
   if(!authed) return e(LoginGate,{lang,setLang,existing:null,onSubmit:async(payload)=>{
     const ok=await saveAuth(payload);
-    if(!ok) alert("Invalid PIN for this household");
+    if(!ok) alert(t.invalidPin);
   }});
   if(!currentHome) return e(LoginGate,{lang,setLang,existing:null,onSubmit:async(payload)=>{
     const ok=await saveAuth(payload);
-    if(!ok) alert("Invalid PIN for this household");
+    if(!ok) alert(t.invalidPin);
   }});
   if(cats.length===0) return e(CatSetupScreen,{lang,setLang,onSave:async(name)=>{ if(!homeKey) return; const id = `c${Date.now().toString(36).slice(-5)}`; await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:[mkCat(0,name,{id,name})]}}})); setCatId(id); }});
   if(!currentCat) return e(CatPicker,{lang,setLang,cats,onChoose:setCatId,onAdd:async(name)=>{ if(!homeKey) return; const id = `c${Date.now().toString(36).slice(-5)}`; await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:[...d.households[homeKey].cats,mkCat(d.households[homeKey].cats.length,name,{id,name})]}}})); setCatId(id); }});
