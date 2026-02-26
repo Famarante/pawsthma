@@ -268,7 +268,13 @@ function ProfileRow({p,onUpdate,onRemove,canRemove}){
   );
 }
 
-function SetupScreen({lang,onSave}){
+function LangToggle({lang,setLang,top=16,right=16}){
+  return e("div",{style:{position:"absolute",top,right,display:"flex",background:"rgba(255,255,255,0.07)",borderRadius:20,padding:3,gap:2,zIndex:5}},
+    ["en","pt"].map(l=>e("button",{key:l,onClick:()=>setLang(l),style:{border:"none",borderRadius:16,padding:"5px 9px",cursor:"pointer",fontSize:11,fontWeight:700,textTransform:"uppercase",background:lang===l?G.amber:"transparent",color:lang===l?"#0a0f1e":G.muted}},l==="en"?"🇬🇧 EN":"🇵🇹 PT"))
+  );
+}
+
+function SetupScreen({lang,setLang,onSave}){
   const t = T[lang];
   const [profiles,setProfiles] = useState([
     {id:mkId(),name:"",emoji:"👨",color:PCOLS[0]},
@@ -284,6 +290,7 @@ function SetupScreen({lang,onSave}){
     onSave(profiles.map(p=>({...p,name:p.name.trim()})));
   };
   return e("div",{style:{background:G.bg,minHeight:"100vh",color:G.text,display:"flex",flexDirection:"column",alignItems:"center",padding:"40px 16px 60px",position:"relative",overflow:"hidden"}},
+    setLang && e(LangToggle,{lang,setLang}),
     e("div",{style:{position:"absolute",top:-80,left:-80,width:360,height:360,borderRadius:"50%",background:"radial-gradient(circle,rgba(245,166,35,0.07),transparent 70%)"}}),
     e("div",{style:{fontSize:44,marginBottom:10}},"🐱"),
     e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:24,fontWeight:700,marginBottom:6,textAlign:"center"}},t.setupTitle),
@@ -322,11 +329,12 @@ function ManageModal({lang,profiles,onSave,onClose}){
   );
 }
 
-function UserPicker({lang,profiles,onChoose}){
+function UserPicker({lang,setLang,profiles,onChoose}){
   const t = T[lang];
   const [hov,setHov] = useState(null);
   const cols = profiles.length<=2?profiles.length:profiles.length<=4?2:3;
   return e("div",{style:{background:G.bg,minHeight:"100vh",color:G.text,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"32px 20px",position:"relative",overflow:"hidden"}},
+    setLang && e(LangToggle,{lang,setLang}),
     e("div",{style:{position:"absolute",top:-80,left:-80,width:360,height:360,borderRadius:"50%",background:"radial-gradient(circle,rgba(245,166,35,0.08),transparent 70%)"}}),
     e("div",{style:{fontSize:46,marginBottom:10}},"🐱"),
     e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:24,fontWeight:700,marginBottom:6}},"Pawsthma"),
@@ -341,7 +349,7 @@ function UserPicker({lang,profiles,onChoose}){
   );
 }
 
-function LoginGate({onSubmit,existing}){
+function LoginGate({lang,setLang,onSubmit,existing}){
   const [household,setHousehold] = useState(existing?.household||"");
   const [pin,setPin] = useState("");
   const [err,setErr] = useState(null);
@@ -351,7 +359,8 @@ function LoginGate({onSubmit,existing}){
     if(!pin.trim()){ setErr("Please enter a PIN"); return; }
     onSubmit({household:household.trim(), pin:pin.trim(), firstTime});
   };
-  return e("div",{style:{background:G.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:16}},
+  return e("div",{style:{background:G.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:16,position:"relative"}},
+    setLang && e(LangToggle,{lang,setLang}),
     e("div",{style:{width:"100%",maxWidth:400,background:G.surface,border:`1px solid ${G.border}`,borderRadius:22,padding:20}},
       e("div",{style:{fontSize:36,textAlign:"center",marginBottom:8}},"🔐"),
       e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:24,fontWeight:700,textAlign:"center",marginBottom:8}},firstTime?"Create household login":"Household login"),
@@ -364,9 +373,10 @@ function LoginGate({onSubmit,existing}){
   );
 }
 
-function CatPicker({cats,onChoose,onAdd}){
+function CatPicker({lang,setLang,cats,onChoose,onAdd}){
   const [name,setName] = useState("");
-  return e("div",{style:{background:G.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:16}},
+  return e("div",{style:{background:G.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:16,position:"relative"}},
+    setLang && e(LangToggle,{lang,setLang}),
     e("div",{style:{width:"100%",maxWidth:430}},
       e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:25,fontWeight:700,textAlign:"center",marginBottom:8}},"Choose your cat"),
       e("div",{style:{fontSize:13,color:G.muted,textAlign:"center",marginBottom:18}},"Each cat has its own asthma history."),
@@ -385,14 +395,15 @@ function CatPicker({cats,onChoose,onAdd}){
   );
 }
 
-function CatSetupScreen({onSave}){
+function CatSetupScreen({lang,setLang,onSave}){
   const [name,setName] = useState("");
   const [err,setErr] = useState(null);
   const save = ()=>{
     if(!name.trim()){ setErr("Please add your first cat name"); return; }
     onSave(name.trim());
   };
-  return e("div",{style:{background:G.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:16}},
+  return e("div",{style:{background:G.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:16,position:"relative"}},
+    setLang && e(LangToggle,{lang,setLang}),
     e("div",{style:{width:"100%",maxWidth:420,background:G.surface,border:`1px solid ${G.border}`,borderRadius:20,padding:20}},
       e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:25,fontWeight:700,textAlign:"center",marginBottom:8}},"Setup your first cat"),
       e("div",{style:{fontSize:13,color:G.muted,textAlign:"center",marginBottom:14}},"Every household starts by configuring at least one cat."),
@@ -558,18 +569,18 @@ function App(){
     e("div",{className:"blink",style:{fontSize:13,color:G.muted}},"Loading…")
   );
 
-  if(!authed) return e(LoginGate,{existing:null,onSubmit:async(payload)=>{
+  if(!authed) return e(LoginGate,{lang,setLang,existing:null,onSubmit:async(payload)=>{
     const ok=await saveAuth(payload);
     if(!ok) alert("Invalid PIN for this household");
   }});
-  if(!currentHome) return e(LoginGate,{existing:null,onSubmit:async(payload)=>{
+  if(!currentHome) return e(LoginGate,{lang,setLang,existing:null,onSubmit:async(payload)=>{
     const ok=await saveAuth(payload);
     if(!ok) alert("Invalid PIN for this household");
   }});
-  if(cats.length===0) return e(CatSetupScreen,{onSave:async(name)=>{ if(!homeKey) return; const id = `c${Date.now().toString(36).slice(-5)}`; await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:[mkCat(0,name,{id,name})]}}})); setCatId(id); }});
-  if(!currentCat) return e(CatPicker,{cats,onChoose:setCatId,onAdd:async(name)=>{ if(!homeKey) return; const id = `c${Date.now().toString(36).slice(-5)}`; await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:[...d.households[homeKey].cats,mkCat(d.households[homeKey].cats.length,name,{id,name})]}}})); setCatId(id); }});
-  if(!profiles) return e(SetupScreen,{lang,onSave:ps=>homeKey&&doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],profiles:ps}}}))});
-  if(!uid)      return e(UserPicker,{lang,profiles,onChoose:setUid});
+  if(cats.length===0) return e(CatSetupScreen,{lang,setLang,onSave:async(name)=>{ if(!homeKey) return; const id = `c${Date.now().toString(36).slice(-5)}`; await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:[mkCat(0,name,{id,name})]}}})); setCatId(id); }});
+  if(!currentCat) return e(CatPicker,{lang,setLang,cats,onChoose:setCatId,onAdd:async(name)=>{ if(!homeKey) return; const id = `c${Date.now().toString(36).slice(-5)}`; await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:[...d.households[homeKey].cats,mkCat(d.households[homeKey].cats.length,name,{id,name})]}}})); setCatId(id); }});
+  if(!profiles) return e(SetupScreen,{lang,setLang,onSave:ps=>homeKey&&doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],profiles:ps}}}))});
+  if(!uid)      return e(UserPicker,{lang,setLang,profiles,onChoose:setUid});
 
   const attacks=Array.isArray(currentCat.attacks)?currentCat.attacks:[];
   const inhalerLogs=Array.isArray(currentCat.inhalerLogs)?currentCat.inhalerLogs:[];
