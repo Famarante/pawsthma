@@ -76,10 +76,38 @@ if (FB_ON) {
 const LS = "pawsthma_v3";
 const lsLoad = () => { try { const v = localStorage.getItem(LS); return v ? JSON.parse(v) : null; } catch { return null; } };
 const lsSave = (d) => { try { localStorage.setItem(LS, JSON.stringify(d)); } catch {} };
-const DEV_HOME = "pawsthma_device_household";
-const devHomeLoad = () => { try { return localStorage.getItem(DEV_HOME); } catch { return null; } };
-const devHomeSave = (k) => { try { localStorage.setItem(DEV_HOME, k); } catch {} };
-const devHomeClear = () => { try { localStorage.removeItem(DEV_HOME); } catch {} };
+const DEV_ID_KEY = "pawsthma_device_id";
+const DEV_HOME_MAP = "pawsthma_device_households";
+const getOrCreateDeviceId = () => {
+  try {
+    let id = localStorage.getItem(DEV_ID_KEY);
+    if (!id) {
+      id = (globalThis.crypto?.randomUUID?.() || `dev_${Math.random().toString(36).slice(2,12)}`);
+      localStorage.setItem(DEV_ID_KEY, id);
+    }
+    return id;
+  } catch {
+    return "device_fallback";
+  }
+};
+const loadDeviceHomes = () => {
+  try { return JSON.parse(localStorage.getItem(DEV_HOME_MAP) || "{}"); } catch { return {}; }
+};
+const getDeviceHome = (deviceId) => loadDeviceHomes()[deviceId] || null;
+const setDeviceHome = (deviceId, homeKey) => {
+  try {
+    const map = loadDeviceHomes();
+    map[deviceId] = homeKey;
+    localStorage.setItem(DEV_HOME_MAP, JSON.stringify(map));
+  } catch {}
+};
+const clearDeviceHome = (deviceId) => {
+  try {
+    const map = loadDeviceHomes();
+    delete map[deviceId];
+    localStorage.setItem(DEV_HOME_MAP, JSON.stringify(map));
+  } catch {}
+};
 
 const G = {
   bg:"#0a0f1e", surface:"rgba(255,255,255,0.04)", border:"rgba(255,255,255,0.09)",
@@ -248,10 +276,7 @@ const normalizeData = (raw) => {
       cats: Array.isArray(src.cats) && src.cats.length ? src.cats.map((c,idx)=>mkCat(idx,c?.name,c)) : [legacyCat],
     };
   }
-  return {
-    households: homes,
-    lastHousehold: src.lastHousehold && homes[src.lastHousehold] ? src.lastHousehold : Object.keys(homes)[0] || "",
-  };
+  return { households: homes };
 };
 
 
@@ -466,6 +491,7 @@ function App(){
   const [inf,setInf]   = useState({date:today(),breaths:2,dosage:"110mcg"});
   const [iif,setIif]   = useState(DEFAULT.inhalerInfo);
   const dr = useRef(null);
+  const deviceId = useRef(getOrCreateDeviceId()).current;
 
   useEffect(()=>{
     (async()=>{
@@ -475,12 +501,10 @@ function App(){
           if(!remote){ remote={...DEFAULT}; await fbSave(remote); }
           const normalized = normalizeData(remote);
           setData(normalized); dr.current=normalized;
-          if(normalized.lastHousehold) setActiveHome(normalized.lastHousehold);
           setSync("live"); setLastSt(Date.now());
           fbSubscribe(inc=>{
             const normalized = normalizeData(inc);
             setData(normalized); dr.current=normalized;
-            if(!activeHome && normalized.lastHousehold) setActiveHome(normalized.lastHousehold);
             setSync("updated"); setLastSt(Date.now());
             setTimeout(()=>setSync("live"),2500);
           });
@@ -492,7 +516,6 @@ function App(){
     function bootLocal(){
       const saved = normalizeData(lsLoad()||{...DEFAULT});
       setData(saved); dr.current=saved;
-      if(saved.lastHousehold) setActiveHome(saved.lastHousehold);
       setSync("demo");
     }
   },[]);
@@ -525,13 +548,13 @@ function App(){
 
   useEffect(()=>{
     if(!data) return;
-    const remembered = devHomeLoad();
+    const remembered = getDeviceHome(deviceId);
     if(!authed && remembered && homes[remembered]){
       setActiveHome(remembered);
       setAuthed(true);
     }
-    if(remembered && !homes[remembered]) devHomeClear();
-  },[data,homes,authed]);
+    if(remembered && !homes[remembered]) clearDeviceHome(deviceId);
+  },[data,homes,authed,deviceId]);
 
   useEffect(()=>{
     if(currentHome){
@@ -559,13 +582,10 @@ function App(){
           ...d.households,
           [key]: mkHousehold(household,{name:household,pin,cats:[],profiles:null}),
         },
-        lastHousehold:key,
       }));
-    } else {
-      await doSave(d=>({ ...d, lastHousehold:key }));
     }
     setActiveHome(key);
-    devHomeSave(key);
+    setDeviceHome(deviceId, key);
     setAuthed(true);
     setUid(null);
     setCatId(null);
@@ -653,7 +673,7 @@ function App(){
                 e("span",{style:{fontFamily:"'Playfair Display',serif",fontSize:17,fontWeight:700,lineHeight:1}},"Pawsthma"),
                 e("span",{onClick:()=>setUid(null),title:t.switchProfile,style:{fontSize:9,fontWeight:700,color:myColor,background:`${myColor}18`,border:`1px solid ${myColor}40`,padding:"3px 8px",borderRadius:10,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3}},`${me?.emoji} ${me?.name}`),
                 e("span",{onClick:()=>setCatId(null),title:t.switchCat,style:{fontSize:9,fontWeight:700,color:G.mint,background:`${G.mint}18`,border:`1px solid ${G.mint}40`,padding:"3px 8px",borderRadius:10,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3}},`🐱 ${currentCat.name}`),
-                e("span",{onClick:()=>{devHomeClear();setAuthed(false);setUid(null);setCatId(null);},title:t.switchHousehold,style:{fontSize:9,fontWeight:700,color:G.amber,background:`${G.amber}18`,border:`1px solid ${G.amber}40`,padding:"3px 8px",borderRadius:10,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3}},`🏠 ${currentHome?.name||"Home"}`)
+                e("span",{onClick:()=>{clearDeviceHome(deviceId);setAuthed(false);setUid(null);setCatId(null);},title:t.switchHousehold,style:{fontSize:9,fontWeight:700,color:G.amber,background:`${G.amber}18`,border:`1px solid ${G.amber}40`,padding:"3px 8px",borderRadius:10,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3}},`🏠 ${currentHome?.name||"Home"}`)
               ),
               e("div",{style:{fontSize:9,color:G.muted,letterSpacing:"0.1em",textTransform:"uppercase",marginTop:2}},t.sub)
             )
