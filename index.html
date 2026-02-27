@@ -167,7 +167,7 @@ const T = {
     date:"Date", severity:"Severity", durLabel:"Duration", durMinLabel:"Minutes", durSecLabel:"Seconds",
     notes:"Notes (optional)", notesP:"After eating, at night…",
     durP:"e.g. 3", durSecP:"e.g. 30", dosageP:"e.g. 110mcg",
-    numBreaths:"Number of Breaths", saveAttack:"Save Attack", saveInhaler:"Save Inhaler Use",
+    numBreaths:"Number of Breaths", saveAttack:"Save Attack", saveInhaler:"Save Inhaler Use", edit:"Edit", del:"Delete",
     sevLabels:{mild:"Mild",moderate:"Moderate",severe:"Severe"},
     d:"d", m:"m", br:"br",
     syncLive:"Live • synced", syncUpdated:"Updated just now",
@@ -220,7 +220,7 @@ const T = {
     date:"Data", severity:"Gravidade", durLabel:"Duração", durMinLabel:"Minutos", durSecLabel:"Segundos",
     notes:"Notas (opcional)", notesP:"Após comer, à noite…",
     durP:"ex: 3", durSecP:"ex: 30", dosageP:"ex: 110mcg",
-    numBreaths:"Número de Inspirações", saveAttack:"Guardar Crise", saveInhaler:"Guardar Uso do Inalador",
+    numBreaths:"Número de Inspirações", saveAttack:"Guardar Crise", saveInhaler:"Guardar Uso do Inalador", edit:"Editar", del:"Apagar",
     sevLabels:{mild:"Ligeira",moderate:"Moderada",severe:"Grave"},
     d:"d", m:"m", br:"insp",
     syncLive:"Ao vivo • sincronizado", syncUpdated:"Atualizado agora",
@@ -925,6 +925,48 @@ function App(){
     await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:d.households[homeKey].cats.map(c=>c.id===catId?{...c,inhalerLogs:[...c.inhalerLogs,{...inf,id:nextId(c.inhalerLogs),breaths:Number(inf.breaths),addedBy:uid}]}:c)}}}));
     setModal(null);
   };
+  const deleteAttack=async(id)=>{
+    if(!catId || !homeKey || !confirm(lang==="pt"?"Apagar esta crise?":"Delete this attack?")) return;
+    await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:d.households[homeKey].cats.map(c=>c.id===catId?{...c,attacks:c.attacks.filter(a=>a.id!==id)}:c)}}}));
+  };
+  const editAttack=async(attack)=>{
+    if(!catId || !homeKey) return;
+    const date = prompt(lang==="pt"?"Data (YYYY-MM-DD)":"Date (YYYY-MM-DD)", attack.date);
+    if(date===null) return;
+    const severity = prompt(lang==="pt"?"Gravidade (mild/moderate/severe)":"Severity (mild/moderate/severe)", attack.severity);
+    if(severity===null) return;
+    const totalSec = Math.max(0,Math.round(Number(attack.duration||0)*60));
+    const curMin = Math.floor(totalSec/60);
+    const curSec = totalSec%60;
+    const mins = prompt(lang==="pt"?"Minutos":"Minutes", String(curMin));
+    if(mins===null) return;
+    const secs = prompt(lang==="pt"?"Segundos (0-59)":"Seconds (0-59)", String(curSec));
+    if(secs===null) return;
+    const notes = prompt(lang==="pt"?"Notas":"Notes", attack.notes||"");
+    if(notes===null) return;
+    const minN = Math.max(0, Number(mins||0));
+    const secN = Math.min(59, Math.max(0, Number(secs||0)));
+    const duration = (minN*60+secN)/60;
+    const sev = ["mild","moderate","severe"].includes((severity||"").trim()) ? severity.trim() : attack.severity;
+    if(!date || duration<=0){ alert(lang==="pt"?"Dados inválidos":"Invalid values"); return; }
+    await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:d.households[homeKey].cats.map(c=>c.id===catId?{...c,attacks:c.attacks.map(a=>a.id===attack.id?{...a,date,notes,severity:sev,duration}:a)}:c)}}}));
+  };
+  const deleteInhaler=async(id)=>{
+    if(!catId || !homeKey || !confirm(lang==="pt"?"Apagar este registo de inalador?":"Delete this inhaler record?")) return;
+    await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:d.households[homeKey].cats.map(c=>c.id===catId?{...c,inhalerLogs:c.inhalerLogs.filter(l=>l.id!==id)}:c)}}}));
+  };
+  const editInhaler=async(log)=>{
+    if(!catId || !homeKey) return;
+    const date = prompt(lang==="pt"?"Data (YYYY-MM-DD)":"Date (YYYY-MM-DD)", log.date);
+    if(date===null) return;
+    const breaths = prompt(lang==="pt"?"Número de inspirações":"Number of breaths", String(log.breaths));
+    if(breaths===null) return;
+    const dosage = prompt(lang==="pt"?"Dosagem":"Dosage", log.dosage||"");
+    if(dosage===null) return;
+    const b = Math.max(1, Number(breaths||0));
+    if(!date || !dosage){ alert(lang==="pt"?"Dados inválidos":"Invalid values"); return; }
+    await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:d.households[homeKey].cats.map(c=>c.id===catId?{...c,inhalerLogs:c.inhalerLogs.map(l=>l.id===log.id?{...l,date,breaths:b,dosage}:l)}:c)}}}));
+  };
   const saveII=()=> homeKey && catId && doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:d.households[homeKey].cats.map(c=>c.id===catId?{...c,inhalerInfo:{...iif}}:c)}}}));
   const saveProfiles=async(ps)=>{ if(!homeKey) return; await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],profiles:ps}}})); setShowMgr(false); };
 
@@ -1105,7 +1147,13 @@ function App(){
         sortedDesc.map((a,i)=>e("div",{key:a.id,className:"fu",style:{animationDelay:`${i*35}ms`,background:G.surface,border:`1px solid ${G.border}`,borderLeft:`3px solid ${SEV[a.severity]}`,borderRadius:16,padding:"14px 16px",marginBottom:10}},
           e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}},
             e("div",{style:{flex:1}},e("div",{style:{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}},e("div",{style:{fontWeight:600,fontSize:15}},fmt(a.date,lang)),e(WhoBadge,{addedBy:a.addedBy,profiles})),e("div",{style:{fontSize:12,color:G.muted,marginTop:4}},`⏱ ${fmtDuration(a.duration,lang)}`),a.notes&&e("div",{style:{fontSize:12,color:G.sub,marginTop:5,fontStyle:"italic",opacity:0.75}},a.notes)),
-            e("span",{style:{fontSize:10,fontWeight:700,textTransform:"uppercase",color:SEV[a.severity],background:`${SEV[a.severity]}18`,padding:"4px 10px",borderRadius:20,letterSpacing:"0.06em",flexShrink:0,marginLeft:8}},t.sevLabels[a.severity])
+            e("div",{style:{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:8,marginLeft:8}},
+              e("span",{style:{fontSize:10,fontWeight:700,textTransform:"uppercase",color:SEV[a.severity],background:`${SEV[a.severity]}18`,padding:"4px 10px",borderRadius:20,letterSpacing:"0.06em",flexShrink:0}},t.sevLabels[a.severity]),
+              e("div",{style:{display:"flex",gap:6}},
+                e("button",{onClick:()=>editAttack(a),style:{background:"rgba(255,255,255,0.06)",border:`1px solid ${G.border}`,color:G.muted,borderRadius:10,padding:"3px 8px",fontSize:10,cursor:"pointer"}},t.edit),
+                e("button",{onClick:()=>deleteAttack(a.id),style:{background:"rgba(255,107,107,0.12)",border:`1px solid ${G.coral}55`,color:G.coral,borderRadius:10,padding:"3px 8px",fontSize:10,cursor:"pointer"}},t.del)
+              )
+            )
           )
         ))
       ),
@@ -1118,7 +1166,7 @@ function App(){
         ),
         e("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:12}},e("div",{style:sec},t.inhalerLog),e("span",{style:{fontSize:12,color:G.muted}},`${inhalerLogs.length} ${t.uses}`)),
         sortedIDesc.map((l,i)=>e("div",{key:l.id,className:"fu",style:{animationDelay:`${i*35}ms`,background:G.surface,border:`1px solid ${G.border}`,borderLeft:`3px solid ${G.mint}`,borderRadius:16,padding:"14px 16px",marginBottom:10}},
-          e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},e("div",null,e("div",{style:{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}},e("div",{style:{fontWeight:600}},fmt(l.date,lang)),e(WhoBadge,{addedBy:l.addedBy,profiles})),e("div",{style:{fontSize:12,color:G.muted,marginTop:4}},`💨 ${t.breaths(l.breaths)}`)),e("div",{style:{fontSize:13,color:G.mint,fontWeight:600,background:"rgba(78,205,196,0.1)",padding:"4px 12px",borderRadius:20}},l.dosage))
+          e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},e("div",null,e("div",{style:{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}},e("div",{style:{fontWeight:600}},fmt(l.date,lang)),e(WhoBadge,{addedBy:l.addedBy,profiles})),e("div",{style:{fontSize:12,color:G.muted,marginTop:4}},`💨 ${t.breaths(l.breaths)}`)),e("div",{style:{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:8}},e("div",{style:{fontSize:13,color:G.mint,fontWeight:600,background:"rgba(78,205,196,0.1)",padding:"4px 12px",borderRadius:20}},l.dosage),e("div",{style:{display:"flex",gap:6}},e("button",{onClick:()=>editInhaler(l),style:{background:"rgba(255,255,255,0.06)",border:`1px solid ${G.border}`,color:G.muted,borderRadius:10,padding:"3px 8px",fontSize:10,cursor:"pointer"}},t.edit),e("button",{onClick:()=>deleteInhaler(l.id),style:{background:"rgba(255,107,107,0.12)",border:`1px solid ${G.coral}55`,color:G.coral,borderRadius:10,padding:"3px 8px",fontSize:10,cursor:"pointer"}},t.del))))
         ))
       ),
 
