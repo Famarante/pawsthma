@@ -99,6 +99,7 @@ if (FB_ON) {
 }
 
 const LS = "pawsthma_v3";
+const isPermissionErr = (err) => /permission|denied|auth\/unauthorized|PERMISSION_DENIED/i.test(`${err?.code||""} ${err?.message||""}`);
 const lsLoad = () => { try { const v = localStorage.getItem(LS); return v ? JSON.parse(v) : null; } catch { return null; } };
 const lsSave = (d) => { try { localStorage.setItem(LS, JSON.stringify(d)); } catch {} };
 const DEV_ID_KEY = "pawsthma_device_id";
@@ -293,9 +294,20 @@ const normProfiles = (profiles) => {
 };
 const normMembers = (members) => {
   if (!Array.isArray(members)) return [];
-  return members
-    .map((m)=>typeof m === "string" ? m : m?.uid)
-    .filter((uid)=>typeof uid === "string" && uid.trim());
+  return [...new Set(
+    members
+      .map((m)=>typeof m === "string" ? m : m?.uid)
+      .filter((uid)=>typeof uid === "string" && uid.trim())
+  )];
+};
+const normMemberKeys = (memberKeys, members=[]) => {
+  if (memberKeys && typeof memberKeys === "object" && !Array.isArray(memberKeys)) {
+    return Object.entries(memberKeys).reduce((acc,[uid,val])=>{
+      if (uid && val===true) acc[uid]=true;
+      return acc;
+    },{});
+  }
+  return members.reduce((acc,uid)=>{ acc[uid]=true; return acc; },{});
 };
 const mkCat = (idx,name,data={}) => ({
   id: data.id || `c${idx+1}`,
@@ -310,6 +322,7 @@ const mkHousehold = (name,data={}) => ({
   inviteCode: (data.inviteCode || mkInviteCode()).toString().toUpperCase(),
   profiles: normProfiles(data.profiles),
   members: normMembers(data.members),
+  memberKeys: normMemberKeys(data.memberKeys, normMembers(data.members)),
   cats: Array.isArray(data.cats) ? data.cats.map((c,idx)=>mkCat(idx,c?.name,c)) : [],
 });
 const normalizeData = (raw) => {
@@ -461,13 +474,17 @@ function AuthGate({lang,setLang,onAuth}){
 
 function LoginGate({lang,setLang,onSubmit,account,householdOptions=[]}){
   const t = T[lang];
-  const hasSavedHomes = householdOptions.length > 0;
+  const options = householdOptions
+    .map((h)=>typeof h === "string" ? { id:h, label:h } : { id:h?.id||"", label:h?.label||h?.name||h?.id||"" })
+    .filter((o)=>o.id);
+  const hasSavedHomes = options.length > 0;
   const [mode,setMode] = useState(hasSavedHomes?"open":"create");
   const [household,setHousehold] = useState("");
-  const [selectedHousehold,setSelectedHousehold] = useState(householdOptions[0] || "");
+  const [selectedHousehold,setSelectedHousehold] = useState(options[0]?.id || "");
   const [inviteCode,setInviteCode] = useState("");
   const [err,setErr] = useState(null);
-  useEffect(()=>{ if(!householdOptions.includes(selectedHousehold)) setSelectedHousehold(householdOptions[0]||""); },[householdOptions,selectedHousehold]);
+  useEffect(()=>{ if(!hasSavedHomes && mode==="open") setMode("create"); },[hasSavedHomes,mode]);
+  useEffect(()=>{ if(!options.some(o=>o.id===selectedHousehold)) setSelectedHousehold(options[0]?.id||""); },[options,selectedHousehold]);
   const submit = () => {
     if(mode==="open"){ if(!selectedHousehold){ setErr(t.loginNeedHousehold); return; } onSubmit({action:"open", householdId:selectedHousehold}); return; }
     if(mode==="create"){ if(!household.trim()){ setErr(t.loginNeedHousehold); return; } onSubmit({action:"create", householdName:household.trim()}); return; }
@@ -486,7 +503,7 @@ function LoginGate({lang,setLang,onSubmit,account,householdOptions=[]}){
         e("button",{onClick:()=>{setMode("create");setErr(null);},style:{flex:1,padding:"8px",borderRadius:10,border:"none",background:mode==="create"?`${G.amber}33`:"rgba(255,255,255,0.05)",color:mode==="create"?G.amber:G.muted,cursor:"pointer"}},t.addHousehold),
         e("button",{onClick:()=>{setMode("join");setErr(null);},style:{flex:1,padding:"8px",borderRadius:10,border:"none",background:mode==="join"?`${G.amber}33`:"rgba(255,255,255,0.05)",color:mode==="join"?G.amber:G.muted,cursor:"pointer"}},t.joinWithInvite)
       ),
-      mode==="open" && hasSavedHomes && e("div",{style:{marginBottom:12}}, householdOptions.map(home=>e("button",{key:home,onClick:()=>{setSelectedHousehold(home);setErr(null);},style:{width:"100%",textAlign:"left",padding:"11px 12px",marginBottom:8,borderRadius:12,border:`1.5px solid ${selectedHousehold===home?G.amber:G.border}`,background:selectedHousehold===home?`${G.amber}1f`:"transparent",color:selectedHousehold===home?G.amber:G.text,cursor:"pointer",fontWeight:600}},`🏠 ${home}`))),
+      mode==="open" && hasSavedHomes && e("div",{style:{marginBottom:12}}, options.map(home=>e("button",{key:home.id,onClick:()=>{setSelectedHousehold(home.id);setErr(null);},style:{width:"100%",textAlign:"left",padding:"11px 12px",marginBottom:8,borderRadius:12,border:`1.5px solid ${selectedHousehold===home.id?G.amber:G.border}`,background:selectedHousehold===home.id?`${G.amber}1f`:"transparent",color:selectedHousehold===home.id?G.amber:G.text,cursor:"pointer",fontWeight:600}},`🏠 ${home.label}`))),
       mode==="create" && e("div",{style:{marginBottom:12}}, e("input",{value:household,onChange:ev=>{setHousehold(ev.target.value);setErr(null);},placeholder:t.householdName,style:IS()})),
       mode==="join" && e("div",{style:{marginBottom:12}}, e("input",{value:inviteCode,onChange:ev=>{setInviteCode(ev.target.value);setErr(null);},placeholder:t.inviteHint,style:IS()})),
       err && e("div",{style:{fontSize:12,color:G.coral,marginBottom:12}},err),
@@ -561,6 +578,7 @@ function App(){
   const [authed,setAuthed] = useState(false);
   const [user,setUser] = useState(null);
   const [userHomes,setUserHomes] = useState([]);
+  const [homeNames,setHomeNames] = useState({});
   const [authReady,setAuthReady] = useState(!FB_ON);
   const [activeHome,setActiveHome] = useState(null);
   const [sync,setSync] = useState("loading");
@@ -593,6 +611,14 @@ function App(){
           const linkedHomes = meta.households && typeof meta.households === "object" ? Object.keys(meta.households) : [];
           setUid(user.uid);
           setUserHomes(linkedHomes);
+          if (fbLoad && linkedHomes.length){
+            Promise.all(linkedHomes.map(async(id)=>{
+              try{ const h = await fbLoad(id); return [id, (h?.name||id).toString()]; }
+              catch{ return [id, id]; }
+            })).then(entries=>setHomeNames(Object.fromEntries(entries)));
+          } else {
+            setHomeNames({});
+          }
           const remembered = getDeviceHome(deviceId);
           const initialHome = linkedHomes.includes(remembered) ? remembered : (linkedHomes[0] || null);
           setActiveHome(initialHome);
@@ -619,17 +645,17 @@ function App(){
     let unsub = null;
     (async()=>{
       try{
-        let remote = await fbLoad(activeHome);
-        if(!remote){
+        let remoteHome = await fbLoad(activeHome);
+        if(!remoteHome){
           const selfProfile = { id:user?.uid||mkId(), name:(user?.displayName||user?.email?.split("@")[0]||"User"), emoji:"🧑", color:PCOLS[0] };
-          remote = { households:{ [activeHome]: { ...mkHousehold(activeHome,{name:activeHome,cats:[],profiles:null}), profiles:[selfProfile] } } };
-          await fbSave(activeHome, remote);
+          remoteHome = { ...mkHousehold(activeHome,{name:activeHome,cats:[],profiles:null}), profiles:[selfProfile], memberKeys:{ ...(user?.uid ? { [user.uid]: true } : {}) } };
+          await fbSave(activeHome, remoteHome);
         }
-        const normalized = normalizeData(remote);
+        const normalized = normalizeData({ households:{ [activeHome]: remoteHome } });
         setData(normalized); dr.current=normalized;
         setSync("live"); setLastSt(Date.now());
         unsub = fbSubscribe(activeHome, inc=>{
-          const n = normalizeData(inc);
+          const n = normalizeData({ households:{ [activeHome]: inc } });
           setData(n); dr.current=n;
           setSync("updated"); setLastSt(Date.now());
           setTimeout(()=>setSync("live"),2500);
@@ -657,7 +683,7 @@ function App(){
     setData(next); dr.current=next;
     if(fbSave && user){
       setSync("loading");
-      const ok=await fbSave(homeKey, next).catch(()=>false);
+      const ok=await fbSave(homeKey, next?.households?.[homeKey] || null).catch(()=>false);
       setSync(ok?"live":"error");
       if(ok){setLastSt(Date.now());setSecs(0);}
     }else{ lsSave(next); }
@@ -717,21 +743,41 @@ function App(){
     const linkUserHome = async(id)=>{
       if(!fbSaveUserMeta || !user?.uid){
         setUserHomes(Array.from(new Set([...(userHomes||[]), id])));
+        setHomeNames(prev=>({ ...prev, [id]: prev[id] || id }));
         return;
       }
       const nextHomes = Array.from(new Set([...(userHomes||[]), id]));
       const householdsByKey = nextHomes.reduce((acc,h)=>{ acc[h]=true; return acc; }, {});
       await fbSaveUserMeta(user.uid, { households: householdsByKey });
       setUserHomes(nextHomes);
+      setHomeNames(prev=>({ ...prev, [id]: prev[id] || id }));
     };
     const attachMember = (home)=>{
       const profiles = Array.isArray(home.profiles) ? home.profiles : [];
       const members = Array.isArray(home.members) ? home.members : [];
-      return { ...home, profiles: profiles.some(p=>p.id===profile.id)?profiles:[...profiles, profile], members: members.includes(memberUid)?members:[...members, memberUid] };
+      const memberKeys = home.memberKeys && typeof home.memberKeys === "object" ? home.memberKeys : {};
+      const nextMembers = members.includes(memberUid)?members:[...members, memberUid];
+      return {
+        ...home,
+        profiles: profiles.some(p=>p.id===profile.id)?profiles:[...profiles, profile],
+        members: nextMembers,
+        memberKeys: { ...memberKeys, [memberUid]: true }
+      };
     };
 
     if(payload.action==="open"){
       const key = payload.householdId;
+      if(FB_ON && fbLoad){
+        try{
+          const probe = await fbLoad(key);
+          if(!probe) return { ok:false, reason:"not-found" };
+          const normalized = normalizeData({ households:{ [key]: probe } });
+          setData(normalized); dr.current=normalized;
+        }catch(err){
+          console.error(err);
+          return { ok:false, reason:isPermissionErr(err)?"permission":"unknown" };
+        }
+      }
       setActiveHome(key); setDeviceHome(deviceId,key); setAuthed(true); setCatId(null);
       return { ok:true };
     }
@@ -740,10 +786,29 @@ function App(){
       const householdId = mkHouseholdId();
       const householdName = payload.householdName || "Home";
       const base = attachMember(mkHousehold(householdName,{name:householdName,cats:[],profiles:null,members:[memberUid]}));
-      const nextData = { households:{ [householdId]: base } };
-      if(FB_ON && fbSave){ await fbSave(householdId, nextData); }
-      else await doSave(d=>({ ...d, households:{...(d?.households||{}), [householdId]: base }}));
-      await linkUserHome(householdId);
+      const nextHome = base;
+      const nextData = { households:{ [householdId]: nextHome } };
+      if(FB_ON){
+        try{ await linkUserHome(householdId); }
+        catch(err){
+          console.error(err);
+          return { ok:false, reason:isPermissionErr(err)?"permission":"unknown" };
+        }
+      }
+      if(FB_ON && fbSave){
+        try{ await fbSave(householdId, nextHome); }
+        catch(err){
+          console.error(err);
+          return { ok:false, reason:isPermissionErr(err)?"permission":"unknown" };
+        }
+      } else await doSave(d=>({ ...d, households:{...(d?.households||{}), [householdId]: base }}));
+      if(!FB_ON){
+        try{ await linkUserHome(householdId); }
+        catch(err){
+          console.error(err);
+          return { ok:false, reason:isPermissionErr(err)?"permission":"unknown" };
+        }
+      }
       setData(normalizeData(nextData)); dr.current=normalizeData(nextData);
       setActiveHome(householdId); setDeviceHome(deviceId, householdId); setAuthed(true); setCatId(null);
       return { ok:true };
@@ -754,7 +819,12 @@ function App(){
       if(!code) return { ok:false, reason:"invalid-invite" };
       let targetId = null;
       if(FB_ON && fbRedeemInvite && user?.uid){
-        const red = await fbRedeemInvite({ code, uid:user.uid });
+        let red = null;
+        try{ red = await fbRedeemInvite({ code, uid:user.uid }); }
+        catch(err){
+          console.error(err);
+          return { ok:false, reason:isPermissionErr(err)?"permission":"unknown" };
+        }
         if(!red.ok) return { ok:false, reason:red.reason };
         targetId = red.householdId;
       } else {
@@ -763,15 +833,43 @@ function App(){
         if(!targetId) return { ok:false, reason:"not-found" };
       }
       if(!targetId) return { ok:false, reason:"not-found" };
-      let remote = FB_ON && fbLoad ? await fbLoad(targetId) : dr.current;
-      const normalized = normalizeData(remote || {households:{}});
+      if(FB_ON){
+        try{ await linkUserHome(targetId); }
+        catch(err){
+          console.error(err);
+          return { ok:false, reason:isPermissionErr(err)?"permission":"unknown" };
+        }
+      }
+      let remoteHome = dr.current?.households?.[targetId] || null;
+      if(FB_ON && fbLoad){
+        try{ remoteHome = await fbLoad(targetId); }
+        catch(err){
+          console.error(err);
+          return { ok:false, reason:isPermissionErr(err)?"permission":"unknown" };
+        }
+      }
+      if(!remoteHome) return { ok:false, reason:"not-found" };
+      const normalized = normalizeData({ households:{ [targetId]: remoteHome } });
       const home = normalized.households?.[targetId];
       if(!home) return { ok:false, reason:"not-found" };
       const updatedHome = attachMember(home);
       const payloadData = { households:{ [targetId]: updatedHome } };
-      if(FB_ON && fbSave) await fbSave(targetId, payloadData);
+      const payloadHome = updatedHome;
+      if(FB_ON && fbSave){
+        try{ await fbSave(targetId, payloadHome); }
+        catch(err){
+          console.error(err);
+          return { ok:false, reason:isPermissionErr(err)?"permission":"unknown" };
+        }
+      }
       else await doSave(d=>({ ...d, households:{...d.households,[targetId]:updatedHome} }));
-      await linkUserHome(targetId);
+      if(!FB_ON){
+        try{ await linkUserHome(targetId); }
+        catch(err){
+          console.error(err);
+          return { ok:false, reason:isPermissionErr(err)?"permission":"unknown" };
+        }
+      }
       setData(normalizeData(payloadData)); dr.current=normalizeData(payloadData);
       setActiveHome(targetId); setDeviceHome(deviceId, targetId); setAuthed(true); setCatId(null);
       return { ok:true };
@@ -813,11 +911,13 @@ function App(){
     if(!homeKey || !user?.uid || !currentHome) return;
     const existing = Array.isArray(currentHome.profiles) ? currentHome.profiles : [];
     const existingMembers = Array.isArray(currentHome.members) ? currentHome.members : [];
-    if(existing.some(p=>p.id===user.uid) && existingMembers.includes(user.uid)) return;
+    const existingMemberKeys = currentHome.memberKeys && typeof currentHome.memberKeys === "object" ? currentHome.memberKeys : {};
+    if(existing.some(p=>p.id===user.uid) && existingMembers.includes(user.uid) && existingMemberKeys[user.uid]===true) return;
     doSave(d=>{
       const latest = Array.isArray(d.households?.[homeKey]?.profiles) ? d.households[homeKey].profiles : [];
       const latestMembers = Array.isArray(d.households?.[homeKey]?.members) ? d.households[homeKey].members : [];
-      if(latest.some(p=>p.id===user.uid) && latestMembers.includes(user.uid)) return d;
+      const latestMemberKeys = d.households?.[homeKey]?.memberKeys && typeof d.households[homeKey].memberKeys === "object" ? d.households[homeKey].memberKeys : {};
+      if(latest.some(p=>p.id===user.uid) && latestMembers.includes(user.uid) && latestMemberKeys[user.uid]===true) return d;
       return ({
         ...d,
         households:{
@@ -825,7 +925,8 @@ function App(){
           [homeKey]:{
             ...d.households[homeKey],
             profiles: latest.some(p=>p.id===user.uid) ? latest : [...latest,{ id:user.uid, name:(user?.displayName||user?.email?.split("@")[0]||"User"), emoji:"🧑", color:PCOLS[0] }],
-            members: latestMembers.includes(user.uid) ? latestMembers : [...latestMembers, user.uid]
+            members: latestMembers.includes(user.uid) ? latestMembers : [...latestMembers, user.uid],
+            memberKeys: { ...latestMemberKeys, [user.uid]: true }
           }
         }
       });
@@ -842,7 +943,7 @@ function App(){
     e("div",{className:"blink",style:{fontSize:13,color:G.muted}},"Loading…")
   );
 
-  if(!authed) return e(LoginGate,{lang,setLang,account:user?.email||user?.displayName||"",householdOptions:userHomes,onSubmit:async(payload)=>{
+  if(!authed) return e(LoginGate,{lang,setLang,account:user?.email||user?.displayName||"",householdOptions:userHomes.map(id=>({id,label:homeNames[id]||id})),onSubmit:async(payload)=>{
     const res=await saveAuth(payload);
     if(!res.ok){
       if(res.reason==="not-found"||res.reason==="invalid-invite") alert(t.inviteInvalid);
@@ -851,7 +952,7 @@ function App(){
       else alert(res.reason==="permission"?t.householdAccessDenied:t.authError);
     }
   }});
-  if(!currentHome) return e(LoginGate,{lang,setLang,account:user?.email||user?.displayName||"",householdOptions:userHomes,onSubmit:async(payload)=>{
+  if(!currentHome) return e(LoginGate,{lang,setLang,account:user?.email||user?.displayName||"",householdOptions:userHomes.map(id=>({id,label:homeNames[id]||id})),onSubmit:async(payload)=>{
     const res=await saveAuth(payload);
     if(!res.ok){
       if(res.reason==="not-found"||res.reason==="invalid-invite") alert(t.inviteInvalid);
