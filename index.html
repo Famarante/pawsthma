@@ -164,10 +164,10 @@ const T = {
     obs4:(n)=>`Inhaler used ${n} times total`,
     avgDur:"Avg Duration", sevEps:"Severe Episodes", avgBr:"Avg Breaths",
     attackModal:"🌊 Record Attack", inhalerModal:"💨 Record Inhaler Use",
-    date:"Date", severity:"Severity", durLabel:"Duration (minutes)",
+    date:"Date", severity:"Severity", durLabel:"Duration", durMinLabel:"Minutes", durSecLabel:"Seconds",
     notes:"Notes (optional)", notesP:"After eating, at night…",
-    durP:"e.g. 3", dosageP:"e.g. 110mcg",
-    numBreaths:"Number of Breaths", saveAttack:"Save Attack", saveInhaler:"Save Inhaler Use",
+    durP:"e.g. 3", durSecP:"e.g. 30", dosageP:"e.g. 110mcg",
+    numBreaths:"Number of Breaths", saveAttack:"Save Attack", saveInhaler:"Save Inhaler Use", edit:"Edit", del:"Delete",
     sevLabels:{mild:"Mild",moderate:"Moderate",severe:"Severe"},
     d:"d", m:"m", br:"br",
     syncLive:"Live • synced", syncUpdated:"Updated just now",
@@ -217,10 +217,10 @@ const T = {
     obs4:(n)=>`Inalador utilizado ${n} vez${n!==1?"es":""} no total`,
     avgDur:"Duração Média", sevEps:"Crises Graves", avgBr:"Inspir. Médias",
     attackModal:"🌊 Registar Crise", inhalerModal:"💨 Registar Inalador",
-    date:"Data", severity:"Gravidade", durLabel:"Duração (minutos)",
+    date:"Data", severity:"Gravidade", durLabel:"Duração", durMinLabel:"Minutos", durSecLabel:"Segundos",
     notes:"Notas (opcional)", notesP:"Após comer, à noite…",
-    durP:"ex: 3", dosageP:"ex: 110mcg",
-    numBreaths:"Número de Inspirações", saveAttack:"Guardar Crise", saveInhaler:"Guardar Uso do Inalador",
+    durP:"ex: 3", durSecP:"ex: 30", dosageP:"ex: 110mcg",
+    numBreaths:"Número de Inspirações", saveAttack:"Guardar Crise", saveInhaler:"Guardar Uso do Inalador", edit:"Editar", del:"Apagar",
     sevLabels:{mild:"Ligeira",moderate:"Moderada",severe:"Grave"},
     d:"d", m:"m", br:"insp",
     syncLive:"Ao vivo • sincronizado", syncUpdated:"Atualizado agora",
@@ -275,7 +275,31 @@ const DEFAULT = {
 
 const e = React.createElement;
 const today = () => new Date().toISOString().split("T")[0];
-const fmt = (d,lang) => new Date(d).toLocaleDateString(lang==="pt"?"pt-PT":"en-GB",{day:"numeric",month:"short"});
+const parseLocalDate = (value) => {
+  if (value instanceof Date) return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+  if (typeof value !== "string") return new Date(value);
+  const m = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return new Date(value);
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  return new Date(year, month - 1, day);
+};
+const fmtLocalDateKey = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+const fmt = (d,lang) => parseLocalDate(d).toLocaleDateString(lang==="pt"?"pt-PT":"en-GB",{day:"numeric",month:"short"});
+const fmtWeekRange = (startKey,lang) => {
+  const start = parseLocalDate(startKey);
+  const end = new Date(start);
+  end.setDate(end.getDate()+6);
+  return `${fmt(start,lang)}–${fmt(end,lang)}`;
+};
+const fmtDuration = (minutes,lang) => {
+  const totalSec = Math.max(0, Math.round(Number(minutes||0)*60));
+  const mins = Math.floor(totalSec/60);
+  const secs = totalSec%60;
+  if (!secs) return lang==="pt" ? `${mins} min` : `${mins} min`;
+  return `${mins}m ${secs}s`;
+};
 const daysBetween = (a,b) => Math.round((new Date(b)-new Date(a))/86400000);
 const nextId = (arr) => arr.length ? Math.max(...arr.map(x=>x.id))+1 : 1;
 const mkId = () => "p"+Math.random().toString(36).slice(2,7);
@@ -588,8 +612,10 @@ function App(){
   const [tab,setTab]   = useState("dashboard");
   const [modal,setModal] = useState(null);
   const [aKey,setAKey] = useState(0);
-  const [af,setAf]     = useState({date:today(),severity:"mild",duration:"",notes:""});
+  const [af,setAf]     = useState({date:today(),severity:"mild",durationMin:"",durationSec:"0",notes:""});
   const [inf,setInf]   = useState({date:today(),breaths:2,dosage:"110mcg"});
+  const [editAttackId,setEditAttackId] = useState(null);
+  const [editInhalerId,setEditInhalerId] = useState(null);
   const [iif,setIif]   = useState(DEFAULT.inhalerInfo);
   const dr = useRef(null);
   const deviceId = useRef(getOrCreateDeviceId()).current;
@@ -889,14 +915,59 @@ function App(){
   };
 
   const addAttack=async()=>{
-    if(!af.duration || !catId || !homeKey) return;
-    await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:d.households[homeKey].cats.map(c=>c.id===catId?{...c,attacks:[...c.attacks,{...af,id:nextId(c.attacks),duration:Number(af.duration),addedBy:uid}]}:c)}}}));
-    setModal(null); setAf({date:today(),severity:"mild",duration:"",notes:""});
+    const mins=Math.max(0,Number(af.durationMin||0));
+    const secs=Math.min(59,Math.max(0,Number(af.durationSec||0)));
+    const duration=(mins*60+secs)/60;
+    if(duration<=0 || !catId || !homeKey) return;
+    await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:d.households[homeKey].cats.map(c=>c.id===catId?{...c,attacks:[...c.attacks,{id:nextId(c.attacks),date:af.date,severity:af.severity,duration,notes:af.notes,addedBy:uid}]}:c)}}}));
+    setModal(null); setAf({date:today(),severity:"mild",durationMin:"",durationSec:"0",notes:""});
   };
   const addInhaler=async()=>{
     if(!catId || !homeKey) return;
     await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:d.households[homeKey].cats.map(c=>c.id===catId?{...c,inhalerLogs:[...c.inhalerLogs,{...inf,id:nextId(c.inhalerLogs),breaths:Number(inf.breaths),addedBy:uid}]}:c)}}}));
     setModal(null);
+  };
+  const deleteAttack=async(id)=>{
+    if(!catId || !homeKey || !confirm(lang==="pt"?"Apagar esta crise?":"Delete this attack?")) return;
+    await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:d.households[homeKey].cats.map(c=>c.id===catId?{...c,attacks:c.attacks.filter(a=>a.id!==id)}:c)}}}));
+  };
+  const editAttack=(attack)=>{
+    const totalSec = Math.max(0,Math.round(Number(attack.duration||0)*60));
+    setAf({
+      date:attack.date||today(),
+      severity:["mild","moderate","severe"].includes(attack.severity)?attack.severity:"mild",
+      durationMin:String(Math.floor(totalSec/60)),
+      durationSec:String(totalSec%60),
+      notes:attack.notes||""
+    });
+    setEditAttackId(attack.id);
+    setModal("editAttack");
+  };
+  const saveEditedAttack=async()=>{
+    const mins=Math.max(0,Number(af.durationMin||0));
+    const secs=Math.min(59,Math.max(0,Number(af.durationSec||0)));
+    const duration=(mins*60+secs)/60;
+    if(duration<=0 || !catId || !homeKey || !editAttackId) return;
+    await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:d.households[homeKey].cats.map(c=>c.id===catId?{...c,attacks:c.attacks.map(a=>a.id===editAttackId?{...a,date:af.date,severity:af.severity,duration,notes:af.notes}:a)}:c)}}}));
+    setModal(null);
+    setEditAttackId(null);
+    setAf({date:today(),severity:"mild",durationMin:"",durationSec:"0",notes:""});
+  };
+  const deleteInhaler=async(id)=>{
+    if(!catId || !homeKey || !confirm(lang==="pt"?"Apagar este registo de inalador?":"Delete this inhaler record?")) return;
+    await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:d.households[homeKey].cats.map(c=>c.id===catId?{...c,inhalerLogs:c.inhalerLogs.filter(l=>l.id!==id)}:c)}}}));
+  };
+  const editInhaler=(log)=>{
+    setInf({date:log.date||today(),breaths:Math.max(1,Number(log.breaths)||1),dosage:log.dosage||""});
+    setEditInhalerId(log.id);
+    setModal("editInhaler");
+  };
+  const saveEditedInhaler=async()=>{
+    if(!catId || !homeKey || !editInhalerId) return;
+    await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:d.households[homeKey].cats.map(c=>c.id===catId?{...c,inhalerLogs:c.inhalerLogs.map(l=>l.id===editInhalerId?{...l,date:inf.date,breaths:Math.max(1,Number(inf.breaths)||1),dosage:inf.dosage}:l)}:c)}}}));
+    setModal(null);
+    setEditInhalerId(null);
+    setInf({date:today(),breaths:2,dosage:"110mcg"});
   };
   const saveII=()=> homeKey && catId && doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:d.households[homeKey].cats.map(c=>c.id===catId?{...c,inhalerInfo:{...iif}}:c)}}}));
   const saveProfiles=async(ps)=>{ if(!homeKey) return; await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],profiles:ps}}})); setShowMgr(false); };
@@ -969,11 +1040,17 @@ function App(){
   const attacks=Array.isArray(currentCat.attacks)?currentCat.attacks:[];
   const inhalerLogs=Array.isArray(currentCat.inhalerLogs)?currentCat.inhalerLogs:[];
   const sorted=[...attacks].sort((a,b)=>a.date.localeCompare(b.date));
-  const weekly=(()=>{ const m={}; sorted.forEach(a=>{ const d=new Date(a.date); const w=new Date(d.setDate(d.getDate()-d.getDay())).toISOString().split("T")[0]; if(!m[w])m[w]={label:fmt(w,lang),mild:0,moderate:0,severe:0}; m[w][a.severity]++; }); return Object.values(m).slice(-6); })();
+  const sortedDesc=[...attacks].sort((a,b)=>b.date.localeCompare(a.date));
+  const weekly=(()=>{ const m={}; sorted.forEach(a=>{ const d=parseLocalDate(a.date); const weekStart=new Date(d); const mondayOffset=(weekStart.getDay()+6)%7; weekStart.setDate(weekStart.getDate()-mondayOffset); const w=fmtLocalDateKey(weekStart); // Intentionally avoid toISOString(): UTC conversion can shift local calendar buckets by a day.
+    if(!m[w])m[w]={label:fmtWeekRange(w,lang),mild:0,moderate:0,severe:0};
+    m[w][a.severity]++; });
+    return Object.values(m).slice(-6);
+  })();
   const sevDist=(()=>{ const c={mild:0,moderate:0,severe:0}; attacks.forEach(a=>c[a.severity]++); return Object.entries(c).map(([n,v])=>({name:n,label:t.sevLabels[n],value:v})).filter(x=>x.value>0); })();
   const durTrend=sorted.map(a=>({date:fmt(a.date,lang),duration:a.duration}));
   const lastA=sorted[sorted.length-1];
   const sortedI=[...inhalerLogs].sort((a,b)=>a.date.localeCompare(b.date));
+  const sortedIDesc=[...inhalerLogs].sort((a,b)=>b.date.localeCompare(a.date));
   const lastI=sortedI[sortedI.length-1];
   const ds=daysBetween(currentCat.inhalerInfo.lastCleaned,today());
   const overdue=ds>=currentCat.inhalerInfo.cleaningIntervalDays;
@@ -1069,10 +1146,16 @@ function App(){
 
       tab==="attacks" && e("div",null,
         e("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:20}},e("div",{style:sec},t.attackLog),e("span",{style:{fontSize:12,color:G.muted}},`${attacks.length} ${t.total}`)),
-        [...attacks].reverse().map((a,i)=>e("div",{key:a.id,className:"fu",style:{animationDelay:`${i*35}ms`,background:G.surface,border:`1px solid ${G.border}`,borderLeft:`3px solid ${SEV[a.severity]}`,borderRadius:16,padding:"14px 16px",marginBottom:10}},
+        sortedDesc.map((a,i)=>e("div",{key:a.id,className:"fu",style:{animationDelay:`${i*35}ms`,background:G.surface,border:`1px solid ${G.border}`,borderLeft:`3px solid ${SEV[a.severity]}`,borderRadius:16,padding:"14px 16px",marginBottom:10}},
           e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}},
-            e("div",{style:{flex:1}},e("div",{style:{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}},e("div",{style:{fontWeight:600,fontSize:15}},fmt(a.date,lang)),e(WhoBadge,{addedBy:a.addedBy,profiles})),e("div",{style:{fontSize:12,color:G.muted,marginTop:4}},`⏱ ${t.duration(a.duration)}`),a.notes&&e("div",{style:{fontSize:12,color:G.sub,marginTop:5,fontStyle:"italic",opacity:0.75}},a.notes)),
-            e("span",{style:{fontSize:10,fontWeight:700,textTransform:"uppercase",color:SEV[a.severity],background:`${SEV[a.severity]}18`,padding:"4px 10px",borderRadius:20,letterSpacing:"0.06em",flexShrink:0,marginLeft:8}},t.sevLabels[a.severity])
+            e("div",{style:{flex:1}},e("div",{style:{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}},e("div",{style:{fontWeight:600,fontSize:15}},fmt(a.date,lang)),e(WhoBadge,{addedBy:a.addedBy,profiles})),e("div",{style:{fontSize:12,color:G.muted,marginTop:4}},`⏱ ${fmtDuration(a.duration,lang)}`),a.notes&&e("div",{style:{fontSize:12,color:G.sub,marginTop:5,fontStyle:"italic",opacity:0.75}},a.notes)),
+            e("div",{style:{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:8,marginLeft:8}},
+              e("span",{style:{fontSize:10,fontWeight:700,textTransform:"uppercase",color:SEV[a.severity],background:`${SEV[a.severity]}18`,padding:"4px 10px",borderRadius:20,letterSpacing:"0.06em",flexShrink:0}},t.sevLabels[a.severity]),
+              e("div",{style:{display:"flex",gap:6}},
+                e("button",{onClick:()=>editAttack(a),style:{background:"rgba(255,255,255,0.06)",border:`1px solid ${G.border}`,color:G.muted,borderRadius:10,padding:"3px 8px",fontSize:10,cursor:"pointer"}},t.edit),
+                e("button",{onClick:()=>deleteAttack(a.id),style:{background:"rgba(255,107,107,0.12)",border:`1px solid ${G.coral}55`,color:G.coral,borderRadius:10,padding:"3px 8px",fontSize:10,cursor:"pointer"}},t.del)
+              )
+            )
           )
         ))
       ),
@@ -1084,8 +1167,8 @@ function App(){
           e("button",{onClick:saveII,style:{width:"100%",padding:"14px",borderRadius:14,border:"none",background:`linear-gradient(135deg,${G.mint},${G.mint}cc)`,color:"#0a0f1e",fontWeight:700,fontSize:15,cursor:"pointer"}},t.saveSettings)
         ),
         e("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:12}},e("div",{style:sec},t.inhalerLog),e("span",{style:{fontSize:12,color:G.muted}},`${inhalerLogs.length} ${t.uses}`)),
-        [...inhalerLogs].reverse().map((l,i)=>e("div",{key:l.id,className:"fu",style:{animationDelay:`${i*35}ms`,background:G.surface,border:`1px solid ${G.border}`,borderLeft:`3px solid ${G.mint}`,borderRadius:16,padding:"14px 16px",marginBottom:10}},
-          e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},e("div",null,e("div",{style:{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}},e("div",{style:{fontWeight:600}},fmt(l.date,lang)),e(WhoBadge,{addedBy:l.addedBy,profiles})),e("div",{style:{fontSize:12,color:G.muted,marginTop:4}},`💨 ${t.breaths(l.breaths)}`)),e("div",{style:{fontSize:13,color:G.mint,fontWeight:600,background:"rgba(78,205,196,0.1)",padding:"4px 12px",borderRadius:20}},l.dosage))
+        sortedIDesc.map((l,i)=>e("div",{key:l.id,className:"fu",style:{animationDelay:`${i*35}ms`,background:G.surface,border:`1px solid ${G.border}`,borderLeft:`3px solid ${G.mint}`,borderRadius:16,padding:"14px 16px",marginBottom:10}},
+          e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},e("div",null,e("div",{style:{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}},e("div",{style:{fontWeight:600}},fmt(l.date,lang)),e(WhoBadge,{addedBy:l.addedBy,profiles})),e("div",{style:{fontSize:12,color:G.muted,marginTop:4}},`💨 ${t.breaths(l.breaths)}`)),e("div",{style:{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:8}},e("div",{style:{fontSize:13,color:G.mint,fontWeight:600,background:"rgba(78,205,196,0.1)",padding:"4px 12px",borderRadius:20}},l.dosage),e("div",{style:{display:"flex",gap:6}},e("button",{onClick:()=>editInhaler(l),style:{background:"rgba(255,255,255,0.06)",border:`1px solid ${G.border}`,color:G.muted,borderRadius:10,padding:"3px 8px",fontSize:10,cursor:"pointer"}},t.edit),e("button",{onClick:()=>deleteInhaler(l.id),style:{background:"rgba(255,107,107,0.12)",border:`1px solid ${G.coral}55`,color:G.coral,borderRadius:10,padding:"3px 8px",fontSize:10,cursor:"pointer"}},t.del))))
         ))
       ),
 
@@ -1118,19 +1201,24 @@ function App(){
     // Modals
     modal && e("div",{onClick:()=>setModal(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",zIndex:200,display:"flex",alignItems:"flex-end",backdropFilter:"blur(6px)"}},
       e("div",{className:"su",onClick:ev=>ev.stopPropagation(),style:{background:"linear-gradient(180deg,#121827,#0d1220)",borderRadius:"28px 28px 0 0",padding:"28px 20px 52px",width:"100%",maxWidth:480,margin:"0 auto",border:`1px solid ${G.border}`,borderBottom:"none"}},
-        e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}},e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700}},modal==="attack"?t.attackModal:t.inhalerModal),e("button",{onClick:()=>setModal(null),style:{background:"rgba(255,255,255,0.07)",border:"none",borderRadius:50,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:G.muted,fontSize:16}},"✕")),
-        modal==="attack" && e("div",null,
+        e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}},e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700}},(modal==="attack"||modal==="editAttack")?t.attackModal:t.inhalerModal),e("button",{onClick:()=>{setModal(null);setEditAttackId(null);setEditInhalerId(null);},style:{background:"rgba(255,255,255,0.07)",border:"none",borderRadius:50,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:G.muted,fontSize:16}},"✕")),
+        (modal==="attack" || modal==="editAttack") && e("div",null,
           e("div",{style:{marginBottom:16}},e("div",{style:lbl},t.date),e("input",{type:"date",value:af.date,onChange:ev=>setAf(f=>({...f,date:ev.target.value})),style:IS()})),
           e("div",{style:{marginBottom:16}},e("div",{style:lbl},t.severity),e("div",{style:{display:"flex",gap:8}},["mild","moderate","severe"].map(s=>e("button",{key:s,onClick:()=>setAf(f=>({...f,severity:s})),style:{flex:1,padding:"10px 4px",border:`1.5px solid ${af.severity===s?SEV[s]:"rgba(255,255,255,0.1)"}`,borderRadius:12,background:af.severity===s?`${SEV[s]}22`:"transparent",color:af.severity===s?SEV[s]:G.muted,cursor:"pointer",fontSize:11,fontWeight:600,transition:"all 0.2s"}},t.sevLabels[s])))),
-          e("div",{style:{marginBottom:16}},e("div",{style:lbl},t.durLabel),e("input",{type:"number",value:af.duration,onChange:ev=>setAf(f=>({...f,duration:ev.target.value})),placeholder:t.durP,style:IS()})),
+          e("div",{style:{marginBottom:16}},e("div",{style:lbl},t.durLabel),
+            e("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}},
+              e("div",null,e("div",{style:{...lbl,marginBottom:6}},t.durMinLabel),e("input",{type:"number",min:0,step:1,value:af.durationMin,onChange:ev=>setAf(f=>({...f,durationMin:ev.target.value})),placeholder:t.durP,style:IS()})),
+              e("div",null,e("div",{style:{...lbl,marginBottom:6}},t.durSecLabel),e("input",{type:"number",min:0,max:59,step:1,value:af.durationSec,onChange:ev=>setAf(f=>({...f,durationSec:ev.target.value})),placeholder:t.durSecP,style:IS()}))
+            )
+          ),
           e("div",{style:{marginBottom:16}},e("div",{style:lbl},t.notes),e("textarea",{value:af.notes,onChange:ev=>setAf(f=>({...f,notes:ev.target.value})),placeholder:t.notesP,rows:3,style:IS({resize:"none"})})),
-          e("button",{onClick:addAttack,style:{width:"100%",padding:"15px",borderRadius:16,border:"none",background:`linear-gradient(135deg,${G.coral},${G.coral}cc)`,color:"#0a0f1e",fontWeight:700,fontSize:15,cursor:"pointer",boxShadow:`0 6px 24px ${G.coral}40`}},t.saveAttack)
+          e("button",{onClick:modal==="editAttack"?saveEditedAttack:addAttack,style:{width:"100%",padding:"15px",borderRadius:16,border:"none",background:`linear-gradient(135deg,${G.coral},${G.coral}cc)`,color:"#0a0f1e",fontWeight:700,fontSize:15,cursor:"pointer",boxShadow:`0 6px 24px ${G.coral}40`}},modal==="editAttack"?`${t.edit} ${t.attackLog}`:t.saveAttack)
         ),
-        modal==="inhaler" && e("div",null,
+        (modal==="inhaler" || modal==="editInhaler") && e("div",null,
           e("div",{style:{marginBottom:16}},e("div",{style:lbl},t.date),e("input",{type:"date",value:inf.date,onChange:ev=>setInf(f=>({...f,date:ev.target.value})),style:IS()})),
           e("div",{style:{marginBottom:16}},e("div",{style:lbl},t.numBreaths),e("div",{style:{display:"flex",gap:8}},[1,2,3,4,5].map(n=>e("button",{key:n,onClick:()=>setInf(f=>({...f,breaths:n})),style:{flex:1,padding:"12px 4px",border:`1.5px solid ${inf.breaths===n?G.mint:"rgba(255,255,255,0.1)"}`,borderRadius:12,background:inf.breaths===n?"rgba(78,205,196,0.15)":"transparent",color:inf.breaths===n?G.mint:G.muted,cursor:"pointer",fontSize:16,fontWeight:700,transition:"all 0.2s"}},n))),e("input",{type:"number",min:1,step:1,value:inf.breaths,onChange:ev=>setInf(f=>({...f,breaths:Math.max(1,Number(ev.target.value)||1)})),style:IS({marginTop:8}),placeholder:t.numBreaths})),
           e("div",{style:{marginBottom:16}},e("div",{style:lbl},t.dosage),e("input",{value:inf.dosage,onChange:ev=>setInf(f=>({...f,dosage:ev.target.value})),placeholder:t.dosageP,style:IS()})),
-          e("button",{onClick:addInhaler,style:{width:"100%",padding:"15px",borderRadius:16,border:"none",background:`linear-gradient(135deg,${G.mint},${G.mint}cc)`,color:"#0a0f1e",fontWeight:700,fontSize:15,cursor:"pointer",boxShadow:`0 6px 24px ${G.mint}40`}},t.saveInhaler)
+          e("button",{onClick:modal==="editInhaler"?saveEditedInhaler:addInhaler,style:{width:"100%",padding:"15px",borderRadius:16,border:"none",background:`linear-gradient(135deg,${G.mint},${G.mint}cc)`,color:"#0a0f1e",fontWeight:700,fontSize:15,cursor:"pointer",boxShadow:`0 6px 24px ${G.mint}40`}},modal==="editInhaler"?`${t.edit} ${t.inhalerLog}`:t.saveInhaler)
         )
       )
     ),
