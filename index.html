@@ -287,6 +287,12 @@ const parseLocalDate = (value) => {
 };
 const fmtLocalDateKey = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 const fmt = (d,lang) => parseLocalDate(d).toLocaleDateString(lang==="pt"?"pt-PT":"en-GB",{day:"numeric",month:"short"});
+const fmtWeekRange = (startKey,lang) => {
+  const start = parseLocalDate(startKey);
+  const end = new Date(start);
+  end.setDate(end.getDate()+6);
+  return `${fmt(start,lang)}–${fmt(end,lang)}`;
+};
 const daysBetween = (a,b) => Math.round((new Date(b)-new Date(a))/86400000);
 const nextId = (arr) => arr.length ? Math.max(...arr.map(x=>x.id))+1 : 1;
 const mkId = () => "p"+Math.random().toString(36).slice(2,7);
@@ -982,10 +988,9 @@ function App(){
   const sorted=[...attacks].sort((a,b)=>a.date.localeCompare(b.date));
   const sortedDesc=[...attacks].sort((a,b)=>b.date.localeCompare(a.date));
   const weekly=(()=>{ const m={}; sorted.forEach(a=>{ const d=parseLocalDate(a.date); const weekStart=new Date(d); const mondayOffset=(weekStart.getDay()+6)%7; weekStart.setDate(weekStart.getDate()-mondayOffset); const w=fmtLocalDateKey(weekStart); // Intentionally avoid toISOString(): UTC conversion can shift local calendar buckets by a day.
-    if(!m[w])m[w]={label:fmt(a.date,lang),latestDate:a.date,mild:0,moderate:0,severe:0};
-    if(a.date>m[w].latestDate){ m[w].latestDate=a.date; m[w].label=fmt(a.date,lang); }
+    if(!m[w])m[w]={label:fmtWeekRange(w,lang),mild:0,moderate:0,severe:0};
     m[w][a.severity]++; });
-    return Object.values(m).map(({latestDate,...rest})=>rest).slice(-6);
+    return Object.values(m).slice(-6);
   })();
   const sevDist=(()=>{ const c={mild:0,moderate:0,severe:0}; attacks.forEach(a=>c[a.severity]++); return Object.entries(c).map(([n,v])=>({name:n,label:t.sevLabels[n],value:v})).filter(x=>x.value>0); })();
   const durTrend=sorted.map(a=>({date:fmt(a.date,lang),duration:a.duration}));
