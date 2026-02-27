@@ -771,6 +771,8 @@ function App(){
         try{
           const probe = await fbLoad(key);
           if(!probe) return { ok:false, reason:"not-found" };
+          const normalized = normalizeData({ households:{ [key]: probe } });
+          setData(normalized); dr.current=normalized;
         }catch(err){
           console.error(err);
           return { ok:false, reason:isPermissionErr(err)?"permission":"unknown" };
