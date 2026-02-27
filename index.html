@@ -58,6 +58,7 @@ import {
 
 const FB_ON = FIREBASE_CONFIG.apiKey !== "PASTE_YOUR_API_KEY_HERE";
 let fbLoad = null, fbSave = null, fbSubscribe = null, fbLoadUserMeta = null, fbSaveUserMeta = null;
+let fbCreateInvite = null, fbRedeemInvite = null;
 let fbAuthObserve = null, fbSignIn = null, fbSignUp = null, fbSignOut = null;
 
 if (FB_ON) {
@@ -70,11 +71,25 @@ if (FB_ON) {
     const auth = getAuth(app);
     const userRef = (uid) => ref(db, `pawsthma/users/${uid}`);
     const homeRef = (key) => ref(db, `pawsthma/households/${key}`);
+    const inviteRef = (code) => ref(db, `pawsthma/invites/${code}`);
     fbLoadUserMeta = async (uid) => { const s = await get(userRef(uid)); return s.val(); };
     fbSaveUserMeta = async (uid, meta) => { await update(userRef(uid), meta); return true; };
     fbLoad      = async (key) => { const s = await get(homeRef(key)); return s.val(); };
     fbSave      = async (key,d) => { await set(homeRef(key), d); return true; };
     fbSubscribe = (key,cb) => onValue(homeRef(key), s => { const v = s.val(); if (v) cb(v); });
+    fbCreateInvite = async ({code, householdId, createdBy, createdAt, expiresAt}) => {
+      await set(inviteRef(code), { code, householdId, createdBy, createdAt, expiresAt, usedBy:null, usedAt:null });
+      return true;
+    };
+    fbRedeemInvite = async ({code, uid}) => {
+      const snap = await get(inviteRef(code));
+      const invite = snap.val();
+      if(!invite) return { ok:false, reason:"not-found" };
+      if(invite.usedBy) return { ok:false, reason:"used" };
+      if(invite.expiresAt && Date.now() > invite.expiresAt) return { ok:false, reason:"expired" };
+      await update(inviteRef(code), { usedBy:uid, usedAt:Date.now() });
+      return { ok:true, householdId:invite.householdId };
+    };
     fbAuthObserve = (cb) => onAuthStateChanged(auth, cb);
     fbSignIn = async (email,password) => signInWithEmailAndPassword(auth, email, password);
     fbSignUp = async (email,password) => createUserWithEmailAndPassword(auth, email, password);
@@ -169,10 +184,15 @@ const T = {
     loginCreate:"Access household", loginEnter:"Access household",
     loginSub:"Use this login to load family profiles and cats.",
     chooseHousehold:"Choose a household",
+    createHousehold:"Create household",
+    joinWithInvite:"Join with invite",
     addHousehold:"+ Add new household",
     backToHouseholds:"← Back to households",
     householdName:"Household name", login:"Login",
+    inviteCode:"Invite code", inviteCodeHelp:"Ask the owner for a one-time invite code.", inviteHint:"e.g. ABCD-EFGH",
+    loginNeedInvite:"Please enter a valid invite code", inviteInvalid:"Invite code is invalid or expired", inviteUsed:"Invite already used", inviteExpired:"Invite expired",
     loginNeedHousehold:"Please enter a household name", signedInAs:(u)=>`Signed in as ${u}`,
+    householdInvite:"Invite", inviteCopied:"Invite code copied", inviteCreateFailed:"Could not generate invite code", inviteCreated:"Invite created", shareInvite:"Share invite",
     chooseCat:"Choose your cat", catHistorySub:"Each cat has its own asthma history.", addNewCat:"Add new cat", catName:"Cat name", add:"Add", catCount:(n)=>`${n} attack${n!==1?"s":""}`,
     firstCatTitle:"Setup your first cat", firstCatSub:"Every household starts by configuring at least one cat.", firstCatRequired:"Please add your first cat name", saveCat:"Save cat",
     demoWarning:"Demo mode: data is only saved on this device. To sync between phones, add your Firebase config.",
@@ -217,10 +237,15 @@ const T = {
     loginCreate:"Aceder à casa", loginEnter:"Aceder à casa",
     loginSub:"Usa este acesso para carregar perfis e gatos da família.",
     chooseHousehold:"Escolhe uma casa",
+    createHousehold:"Criar casa",
+    joinWithInvite:"Entrar com convite",
     addHousehold:"+ Adicionar nova casa",
     backToHouseholds:"← Voltar às casas",
     householdName:"Nome da casa", login:"Entrar",
+    inviteCode:"Código de convite", inviteCodeHelp:"Pede ao dono da casa um código de convite de uso único.", inviteHint:"ex: ABCD-EFGH",
+    loginNeedInvite:"Introduz um código de convite válido", inviteInvalid:"Código inválido ou expirado", inviteUsed:"Convite já utilizado", inviteExpired:"Convite expirado",
     loginNeedHousehold:"Introduz o nome da casa", signedInAs:(u)=>`Sessão iniciada como ${u}`,
+    householdInvite:"Convidar", inviteCopied:"Código copiado", inviteCreateFailed:"Não foi possível gerar código de convite", inviteCreated:"Convite criado", shareInvite:"Partilhar convite",
     chooseCat:"Escolhe o teu gato", catHistorySub:"Cada gato tem o seu histórico de asma.", addNewCat:"Adicionar novo gato", catName:"Nome do gato", add:"Adicionar", catCount:(n)=>`${n} crise${n!==1?"s":""}`,
     firstCatTitle:"Configura o primeiro gato", firstCatSub:"Cada casa começa por configurar pelo menos um gato.", firstCatRequired:"Adiciona o nome do primeiro gato", saveCat:"Guardar gato",
     demoWarning:"Modo demo: os dados são guardados apenas neste dispositivo. Para sincronizar entre telemóveis, adiciona a configuração Firebase.",
@@ -253,6 +278,8 @@ const fmt = (d,lang) => new Date(d).toLocaleDateString(lang==="pt"?"pt-PT":"en-G
 const daysBetween = (a,b) => Math.round((new Date(b)-new Date(a))/86400000);
 const nextId = (arr) => arr.length ? Math.max(...arr.map(x=>x.id))+1 : 1;
 const mkId = () => "p"+Math.random().toString(36).slice(2,7);
+const mkHouseholdId = () => (globalThis.crypto?.randomUUID?.() || `h_${Math.random().toString(36).slice(2,12)}${Math.random().toString(36).slice(2,6)}`).replace(/-/g,"").slice(0,16);
+const mkInviteCode = () => Math.random().toString(36).slice(2,6).toUpperCase()+"-"+Math.random().toString(36).slice(2,6).toUpperCase();
 const normProfiles = (profiles) => {
   if (!Array.isArray(profiles)) return null;
   return profiles
@@ -278,12 +305,13 @@ const mkCat = (idx,name,data={}) => ({
   inhalerInfo: { ...DEFAULT.inhalerInfo, ...(data.inhalerInfo || {}) },
 });
 const mkHousehold = (name,data={}) => ({
+  id: (data.id || mkHouseholdId()).toString(),
   name: (name || data.name || "Home").toString(),
+  inviteCode: (data.inviteCode || mkInviteCode()).toString().toUpperCase(),
   profiles: normProfiles(data.profiles),
   members: normMembers(data.members),
   cats: Array.isArray(data.cats) ? data.cats.map((c,idx)=>mkCat(idx,c?.name,c)) : [],
 });
-const householdKey = (name="") => name.toLowerCase().trim().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"") || "home";
 const normalizeData = (raw) => {
   const src = raw && typeof raw === "object" ? raw : {};
   const homes = src.households && typeof src.households === "object" ? src.households : {};
@@ -431,24 +459,20 @@ function AuthGate({lang,setLang,onAuth}){
   );
 }
 
-function LoginGate({lang,setLang,onSubmit,existing,account,householdOptions=[]}){
+function LoginGate({lang,setLang,onSubmit,account,householdOptions=[]}){
   const t = T[lang];
   const hasSavedHomes = householdOptions.length > 0;
-  const [household,setHousehold] = useState(existing?.household||"");
+  const [mode,setMode] = useState(hasSavedHomes?"open":"create");
+  const [household,setHousehold] = useState("");
   const [selectedHousehold,setSelectedHousehold] = useState(householdOptions[0] || "");
-  const [addingNew,setAddingNew] = useState(!hasSavedHomes);
+  const [inviteCode,setInviteCode] = useState("");
   const [err,setErr] = useState(null);
-  useEffect(()=>{
-    if(!hasSavedHomes){
-      setAddingNew(true);
-      return;
-    }
-    if(!householdOptions.includes(selectedHousehold)) setSelectedHousehold(householdOptions[0]);
-  },[hasSavedHomes,householdOptions,selectedHousehold]);
+  useEffect(()=>{ if(!householdOptions.includes(selectedHousehold)) setSelectedHousehold(householdOptions[0]||""); },[householdOptions,selectedHousehold]);
   const submit = () => {
-    const target = addingNew ? household.trim() : selectedHousehold;
-    if(!target){ setErr(t.loginNeedHousehold); return; }
-    onSubmit({household:target});
+    if(mode==="open"){ if(!selectedHousehold){ setErr(t.loginNeedHousehold); return; } onSubmit({action:"open", householdId:selectedHousehold}); return; }
+    if(mode==="create"){ if(!household.trim()){ setErr(t.loginNeedHousehold); return; } onSubmit({action:"create", householdName:household.trim()}); return; }
+    if(!inviteCode.trim()){ setErr(t.inviteInvalid); return; }
+    onSubmit({action:"join", inviteCode:inviteCode.trim().toUpperCase()});
   };
   return e("div",{style:{background:G.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:16,position:"relative"}},
     setLang && e(LangToggle,{lang,setLang}),
@@ -456,15 +480,17 @@ function LoginGate({lang,setLang,onSubmit,existing,account,householdOptions=[]})
       e("div",{style:{fontSize:36,textAlign:"center",marginBottom:8}},"🔐"),
       e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:24,fontWeight:700,textAlign:"center",marginBottom:8}},t.loginEnter),
       account && e("div",{style:{fontSize:12,color:G.muted,textAlign:"center",marginBottom:8}},t.signedInAs(account)),
-      e("div",{style:{fontSize:13,color:G.muted,textAlign:"center",marginBottom:16}},t.loginSub),
-      !addingNew && hasSavedHomes && e("div",{style:{marginBottom:12}},
-        e("div",{style:{fontSize:12,color:G.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.08em"}},t.chooseHousehold),
-        householdOptions.map(home=>e("button",{key:home,onClick:()=>{setSelectedHousehold(home);setErr(null);},style:{width:"100%",textAlign:"left",padding:"11px 12px",marginBottom:8,borderRadius:12,border:`1.5px solid ${selectedHousehold===home?G.amber:G.border}`,background:selectedHousehold===home?`${G.amber}1f`:"transparent",color:selectedHousehold===home?G.amber:G.text,cursor:"pointer",fontWeight:600}},`🏠 ${home}`))
+      e("div",{style:{fontSize:13,color:G.muted,textAlign:"center",marginBottom:12}},t.loginSub),
+      e("div",{style:{display:"flex",gap:6,marginBottom:12}},
+        hasSavedHomes && e("button",{onClick:()=>{setMode("open");setErr(null);},style:{flex:1,padding:"8px",borderRadius:10,border:"none",background:mode==="open"?`${G.amber}33`:"rgba(255,255,255,0.05)",color:mode==="open"?G.amber:G.muted,cursor:"pointer"}},t.chooseHousehold),
+        e("button",{onClick:()=>{setMode("create");setErr(null);},style:{flex:1,padding:"8px",borderRadius:10,border:"none",background:mode==="create"?`${G.amber}33`:"rgba(255,255,255,0.05)",color:mode==="create"?G.amber:G.muted,cursor:"pointer"}},t.addHousehold),
+        e("button",{onClick:()=>{setMode("join");setErr(null);},style:{flex:1,padding:"8px",borderRadius:10,border:"none",background:mode==="join"?`${G.amber}33`:"rgba(255,255,255,0.05)",color:mode==="join"?G.amber:G.muted,cursor:"pointer"}},t.joinWithInvite)
       ),
-      addingNew && e("div",{style:{marginBottom:12}}, e("input",{value:household,onChange:ev=>{setHousehold(ev.target.value);setErr(null);},placeholder:t.householdName,style:IS()})),
+      mode==="open" && hasSavedHomes && e("div",{style:{marginBottom:12}}, householdOptions.map(home=>e("button",{key:home,onClick:()=>{setSelectedHousehold(home);setErr(null);},style:{width:"100%",textAlign:"left",padding:"11px 12px",marginBottom:8,borderRadius:12,border:`1.5px solid ${selectedHousehold===home?G.amber:G.border}`,background:selectedHousehold===home?`${G.amber}1f`:"transparent",color:selectedHousehold===home?G.amber:G.text,cursor:"pointer",fontWeight:600}},`🏠 ${home}`))),
+      mode==="create" && e("div",{style:{marginBottom:12}}, e("input",{value:household,onChange:ev=>{setHousehold(ev.target.value);setErr(null);},placeholder:t.householdName,style:IS()})),
+      mode==="join" && e("div",{style:{marginBottom:12}}, e("input",{value:inviteCode,onChange:ev=>{setInviteCode(ev.target.value);setErr(null);},placeholder:t.inviteHint,style:IS()})),
       err && e("div",{style:{fontSize:12,color:G.coral,marginBottom:12}},err),
-      e("button",{onClick:submit,style:{width:"100%",padding:"13px",borderRadius:14,border:"none",background:`linear-gradient(135deg,${G.amber},#e8890c)`,color:"#0a0f1e",fontWeight:700,cursor:"pointer"}}, addingNew ? t.loginCreate : t.login),
-      hasSavedHomes && e("button",{onClick:()=>{setAddingNew(v=>!v);setErr(null);},style:{width:"100%",padding:"9px",background:"transparent",border:"none",color:G.muted,cursor:"pointer",fontSize:12,marginTop:8}},addingNew?t.backToHouseholds:t.addHousehold)
+      e("button",{onClick:submit,style:{width:"100%",padding:"13px",borderRadius:14,border:"none",background:`linear-gradient(135deg,${G.amber},#e8890c)`,color:"#0a0f1e",fontWeight:700,cursor:"pointer"}}, mode==="join"?t.joinWithInvite:(mode==="create"?t.loginCreate:t.login))
     )
   );
 }
@@ -685,76 +711,83 @@ function App(){
     }
   },[currentHome,catId]);
 
-  const saveAuth = async({household}) => {
-    const key = householdKey(household);
+  const saveAuth = async(payload) => {
     const profile = { id:user?.uid||mkId(), name:(user?.displayName||user?.email?.split("@")[0]||"User"), emoji:"🧑", color:PCOLS[0] };
     const memberUid = user?.uid || profile.id;
-    if(!FB_ON || !fbLoad){
-      const existing = dr.current?.households?.[key];
-      if(!existing){
-        await doSave(d=>({ ...d, households:{...d.households,[key]:{ ...mkHousehold(household,{name:household,cats:[],profiles:null,members:[memberUid]}), profiles:[profile], members:[memberUid] }} }));
-      } else {
-        await doSave(d=>{
-          const home = d.households?.[key];
-          if(!home) return d;
-          const profiles = Array.isArray(home.profiles) ? home.profiles : [];
-          const members = Array.isArray(home.members) ? home.members : [];
-          const nextProfiles = profiles.some(p=>p.id===profile.id) ? profiles : [...profiles, profile];
-          const nextMembers = members.includes(memberUid) ? members : [...members, memberUid];
-          return ({
-            ...d,
-            households:{
-              ...d.households,
-              [key]:{ ...home, profiles:nextProfiles, members:nextMembers }
-            }
-          });
-        });
+    const linkUserHome = async(id)=>{
+      if(!fbSaveUserMeta || !user?.uid){
+        setUserHomes(Array.from(new Set([...(userHomes||[]), id])));
+        return;
       }
-      setActiveHome(key);
-      setDeviceHome(deviceId, key);
-      setAuthed(true);
-      setCatId(null);
+      const nextHomes = Array.from(new Set([...(userHomes||[]), id]));
+      const householdsByKey = nextHomes.reduce((acc,h)=>{ acc[h]=true; return acc; }, {});
+      await fbSaveUserMeta(user.uid, { households: householdsByKey });
+      setUserHomes(nextHomes);
+    };
+    const attachMember = (home)=>{
+      const profiles = Array.isArray(home.profiles) ? home.profiles : [];
+      const members = Array.isArray(home.members) ? home.members : [];
+      return { ...home, profiles: profiles.some(p=>p.id===profile.id)?profiles:[...profiles, profile], members: members.includes(memberUid)?members:[...members, memberUid] };
+    };
+
+    if(payload.action==="open"){
+      const key = payload.householdId;
+      setActiveHome(key); setDeviceHome(deviceId,key); setAuthed(true); setCatId(null);
       return { ok:true };
     }
-    try {
-      let homeData = await fbLoad(key);
-      if(!homeData){
-        homeData = { households:{ [key]: { ...mkHousehold(household,{name:household,cats:[],profiles:null,members:[memberUid]}), profiles:[profile], members:[memberUid] } } };
-        await fbSave(key, homeData);
-      } else {
-        const normalized = normalizeData(homeData);
-        const existing = normalized.households?.[key] || mkHousehold(household,{name:household,cats:[],profiles:null});
-        const hasProfile = Array.isArray(existing.profiles) && existing.profiles.some(p=>p.id===profile.id);
-        const hasMember = Array.isArray(existing.members) && existing.members.includes(memberUid);
-        if(!hasProfile || !hasMember){
-          existing.profiles = hasProfile ? (existing.profiles || []) : [ ...(existing.profiles || []), profile ];
-          existing.members = hasMember ? (existing.members || []) : [ ...(existing.members || []), memberUid ];
-          homeData = { households:{ [key]: existing } };
-          await fbSave(key, homeData);
-        }
-      }
-      if(fbSaveUserMeta && user?.uid){
-        const nextHomes = Array.from(new Set([...(userHomes||[]), key]));
-        const householdsByKey = nextHomes.reduce((acc,h)=>{ acc[h]=true; return acc; }, {});
-        await fbSaveUserMeta(user.uid, { households: householdsByKey });
-        setUserHomes(nextHomes);
-      }
-      const normalizedHome = normalizeData(homeData);
-      setData(normalizedHome);
-      dr.current = normalizedHome;
-      setSync("live");
-      setLastSt(Date.now());
-      setActiveHome(key);
-      setDeviceHome(deviceId, key);
-      setAuthed(true);
-      setCatId(null);
+
+    if(payload.action==="create"){
+      const householdId = mkHouseholdId();
+      const householdName = payload.householdName || "Home";
+      const base = attachMember(mkHousehold(householdName,{name:householdName,cats:[],profiles:null,members:[memberUid]}));
+      const nextData = { households:{ [householdId]: base } };
+      if(FB_ON && fbSave){ await fbSave(householdId, nextData); }
+      else await doSave(d=>({ ...d, households:{...(d?.households||{}), [householdId]: base }}));
+      await linkUserHome(householdId);
+      setData(normalizeData(nextData)); dr.current=normalizeData(nextData);
+      setActiveHome(householdId); setDeviceHome(deviceId, householdId); setAuthed(true); setCatId(null);
       return { ok:true };
-    } catch (err) {
-      console.error(err);
-      const msg = `${err?.code||""} ${err?.message||""}`;
-      if(/permission-denied|PERMISSION_DENIED/i.test(msg)) return { ok:false, reason:"permission" };
-      return { ok:false, reason:"unknown" };
     }
+
+    if(payload.action==="join"){
+      const code = (payload.inviteCode||"").toUpperCase();
+      if(!code) return { ok:false, reason:"invalid-invite" };
+      let targetId = null;
+      if(FB_ON && fbRedeemInvite && user?.uid){
+        const red = await fbRedeemInvite({ code, uid:user.uid });
+        if(!red.ok) return { ok:false, reason:red.reason };
+        targetId = red.householdId;
+      } else {
+        const homesLocal = dr.current?.households || {};
+        targetId = Object.keys(homesLocal).find(h=>homesLocal[h]?.inviteCode===code) || null;
+        if(!targetId) return { ok:false, reason:"not-found" };
+      }
+      if(!targetId) return { ok:false, reason:"not-found" };
+      let remote = FB_ON && fbLoad ? await fbLoad(targetId) : dr.current;
+      const normalized = normalizeData(remote || {households:{}});
+      const home = normalized.households?.[targetId];
+      if(!home) return { ok:false, reason:"not-found" };
+      const updatedHome = attachMember(home);
+      const payloadData = { households:{ [targetId]: updatedHome } };
+      if(FB_ON && fbSave) await fbSave(targetId, payloadData);
+      else await doSave(d=>({ ...d, households:{...d.households,[targetId]:updatedHome} }));
+      await linkUserHome(targetId);
+      setData(normalizeData(payloadData)); dr.current=normalizeData(payloadData);
+      setActiveHome(targetId); setDeviceHome(deviceId, targetId); setAuthed(true); setCatId(null);
+      return { ok:true };
+    }
+
+    return { ok:false, reason:"unknown" };
+  };
+
+  const createInvite = async()=>{
+    if(!homeKey) return;
+    const code = mkInviteCode();
+    const expiresAt = Date.now() + 7*24*60*60*1000;
+    if(FB_ON && fbCreateInvite && user?.uid) await fbCreateInvite({ code, householdId:homeKey, createdBy:user.uid, createdAt:Date.now(), expiresAt });
+    else await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],inviteCode:code}}}));
+    try{ await navigator.clipboard.writeText(code); }catch{}
+    alert(`${t.inviteCreated}: ${code}`);
   };
 
   const addAttack=async()=>{
@@ -809,13 +842,23 @@ function App(){
     e("div",{className:"blink",style:{fontSize:13,color:G.muted}},"Loading…")
   );
 
-  if(!authed) return e(LoginGate,{lang,setLang,account:user?.email||user?.displayName||"",existing:null,householdOptions:userHomes,onSubmit:async(payload)=>{
+  if(!authed) return e(LoginGate,{lang,setLang,account:user?.email||user?.displayName||"",householdOptions:userHomes,onSubmit:async(payload)=>{
     const res=await saveAuth(payload);
-    if(!res.ok) alert(res.reason==="permission"?t.householdAccessDenied:t.authError);
+    if(!res.ok){
+      if(res.reason==="not-found"||res.reason==="invalid-invite") alert(t.inviteInvalid);
+      else if(res.reason==="used") alert(t.inviteUsed);
+      else if(res.reason==="expired") alert(t.inviteExpired);
+      else alert(res.reason==="permission"?t.householdAccessDenied:t.authError);
+    }
   }});
-  if(!currentHome) return e(LoginGate,{lang,setLang,account:user?.email||user?.displayName||"",existing:null,householdOptions:userHomes,onSubmit:async(payload)=>{
+  if(!currentHome) return e(LoginGate,{lang,setLang,account:user?.email||user?.displayName||"",householdOptions:userHomes,onSubmit:async(payload)=>{
     const res=await saveAuth(payload);
-    if(!res.ok) alert(res.reason==="permission"?t.householdAccessDenied:t.authError);
+    if(!res.ok){
+      if(res.reason==="not-found"||res.reason==="invalid-invite") alert(t.inviteInvalid);
+      else if(res.reason==="used") alert(t.inviteUsed);
+      else if(res.reason==="expired") alert(t.inviteExpired);
+      else alert(res.reason==="permission"?t.householdAccessDenied:t.authError);
+    }
   }});
   if(cats.length===0) return e(CatSetupScreen,{lang,setLang,onSave:async(name)=>{ if(!homeKey) return; const id = `c${Date.now().toString(36).slice(-5)}`; await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:[mkCat(0,name,{id,name})]}}})); setCatId(id); }});
   if(!currentCat) return e(CatPicker,{lang,setLang,cats,onChoose:setCatId,onAdd:async(name)=>{ if(!homeKey) return; const id = `c${Date.now().toString(36).slice(-5)}`; await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:[...d.households[homeKey].cats,mkCat(d.households[homeKey].cats.length,name,{id,name})]}}})); setCatId(id); }});
@@ -869,6 +912,7 @@ function App(){
             )
           ),
           e("div",{style:{display:"flex",gap:8,alignItems:"center"}},
+            e("button",{onClick:createInvite,title:t.shareInvite,style:{background:"rgba(255,255,255,0.06)",border:`1px solid ${G.border}`,borderRadius:20,padding:"6px 10px",cursor:"pointer",color:G.muted,fontSize:12}},"🔗"),
             e("button",{onClick:()=>setShowMgr(true),style:{background:"rgba(255,255,255,0.06)",border:`1px solid ${G.border}`,borderRadius:20,padding:"6px 10px",cursor:"pointer",color:G.muted,fontSize:14}},"👥"),
             FB_ON && e("button",{onClick:logoutUser,title:"Logout",style:{background:"rgba(255,255,255,0.06)",border:`1px solid ${G.border}`,borderRadius:20,padding:"6px 10px",cursor:"pointer",color:G.muted,fontSize:12}},"⎋"),
             e("div",{style:{display:"flex",background:"rgba(255,255,255,0.07)",borderRadius:20,padding:3,gap:2}},
