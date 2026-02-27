@@ -294,9 +294,20 @@ const normProfiles = (profiles) => {
 };
 const normMembers = (members) => {
   if (!Array.isArray(members)) return [];
-  return members
-    .map((m)=>typeof m === "string" ? m : m?.uid)
-    .filter((uid)=>typeof uid === "string" && uid.trim());
+  return [...new Set(
+    members
+      .map((m)=>typeof m === "string" ? m : m?.uid)
+      .filter((uid)=>typeof uid === "string" && uid.trim())
+  )];
+};
+const normMemberKeys = (memberKeys, members=[]) => {
+  if (memberKeys && typeof memberKeys === "object" && !Array.isArray(memberKeys)) {
+    return Object.entries(memberKeys).reduce((acc,[uid,val])=>{
+      if (uid && val===true) acc[uid]=true;
+      return acc;
+    },{});
+  }
+  return members.reduce((acc,uid)=>{ acc[uid]=true; return acc; },{});
 };
 const mkCat = (idx,name,data={}) => ({
   id: data.id || `c${idx+1}`,
@@ -311,6 +322,7 @@ const mkHousehold = (name,data={}) => ({
   inviteCode: (data.inviteCode || mkInviteCode()).toString().toUpperCase(),
   profiles: normProfiles(data.profiles),
   members: normMembers(data.members),
+  memberKeys: normMemberKeys(data.memberKeys, normMembers(data.members)),
   cats: Array.isArray(data.cats) ? data.cats.map((c,idx)=>mkCat(idx,c?.name,c)) : [],
 });
 const normalizeData = (raw) => {
@@ -728,7 +740,14 @@ function App(){
     const attachMember = (home)=>{
       const profiles = Array.isArray(home.profiles) ? home.profiles : [];
       const members = Array.isArray(home.members) ? home.members : [];
-      return { ...home, profiles: profiles.some(p=>p.id===profile.id)?profiles:[...profiles, profile], members: members.includes(memberUid)?members:[...members, memberUid] };
+      const memberKeys = home.memberKeys && typeof home.memberKeys === "object" ? home.memberKeys : {};
+      const nextMembers = members.includes(memberUid)?members:[...members, memberUid];
+      return {
+        ...home,
+        profiles: profiles.some(p=>p.id===profile.id)?profiles:[...profiles, profile],
+        members: nextMembers,
+        memberKeys: { ...memberKeys, [memberUid]: true }
+      };
     };
 
     if(payload.action==="open"){
@@ -854,11 +873,13 @@ function App(){
     if(!homeKey || !user?.uid || !currentHome) return;
     const existing = Array.isArray(currentHome.profiles) ? currentHome.profiles : [];
     const existingMembers = Array.isArray(currentHome.members) ? currentHome.members : [];
-    if(existing.some(p=>p.id===user.uid) && existingMembers.includes(user.uid)) return;
+    const existingMemberKeys = currentHome.memberKeys && typeof currentHome.memberKeys === "object" ? currentHome.memberKeys : {};
+    if(existing.some(p=>p.id===user.uid) && existingMembers.includes(user.uid) && existingMemberKeys[user.uid]===true) return;
     doSave(d=>{
       const latest = Array.isArray(d.households?.[homeKey]?.profiles) ? d.households[homeKey].profiles : [];
       const latestMembers = Array.isArray(d.households?.[homeKey]?.members) ? d.households[homeKey].members : [];
-      if(latest.some(p=>p.id===user.uid) && latestMembers.includes(user.uid)) return d;
+      const latestMemberKeys = d.households?.[homeKey]?.memberKeys && typeof d.households[homeKey].memberKeys === "object" ? d.households[homeKey].memberKeys : {};
+      if(latest.some(p=>p.id===user.uid) && latestMembers.includes(user.uid) && latestMemberKeys[user.uid]===true) return d;
       return ({
         ...d,
         households:{
@@ -866,7 +887,8 @@ function App(){
           [homeKey]:{
             ...d.households[homeKey],
             profiles: latest.some(p=>p.id===user.uid) ? latest : [...latest,{ id:user.uid, name:(user?.displayName||user?.email?.split("@")[0]||"User"), emoji:"🧑", color:PCOLS[0] }],
-            members: latestMembers.includes(user.uid) ? latestMembers : [...latestMembers, user.uid]
+            members: latestMembers.includes(user.uid) ? latestMembers : [...latestMembers, user.uid],
+            memberKeys: { ...latestMemberKeys, [user.uid]: true }
           }
         }
       });
