@@ -729,7 +729,8 @@ function App(){
         if(!hasProfile || !hasMember){
           existing.profiles = hasProfile ? (existing.profiles || []) : [ ...(existing.profiles || []), profile ];
           existing.members = hasMember ? (existing.members || []) : [ ...(existing.members || []), memberUid ];
-          await fbSave(key, { households:{ [key]: existing } });
+          homeData = { households:{ [key]: existing } };
+          await fbSave(key, homeData);
         }
       }
       if(fbSaveUserMeta && user?.uid){
@@ -738,6 +739,11 @@ function App(){
         await fbSaveUserMeta(user.uid, { households: householdsByKey });
         setUserHomes(nextHomes);
       }
+      const normalizedHome = normalizeData(homeData);
+      setData(normalizedHome);
+      dr.current = normalizedHome;
+      setSync("live");
+      setLastSt(Date.now());
       setActiveHome(key);
       setDeviceHome(deviceId, key);
       setAuthed(true);
