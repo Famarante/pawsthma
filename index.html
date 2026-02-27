@@ -99,6 +99,7 @@ if (FB_ON) {
 }
 
 const LS = "pawsthma_v3";
+const isPermissionErr = (err) => /permission|denied|auth\/unauthorized|PERMISSION_DENIED/i.test(`${err?.code||""} ${err?.message||""}`);
 const lsLoad = () => { try { const v = localStorage.getItem(LS); return v ? JSON.parse(v) : null; } catch { return null; } };
 const lsSave = (d) => { try { localStorage.setItem(LS, JSON.stringify(d)); } catch {} };
 const DEV_ID_KEY = "pawsthma_device_id";
@@ -732,6 +733,15 @@ function App(){
 
     if(payload.action==="open"){
       const key = payload.householdId;
+      if(FB_ON && fbLoad){
+        try{
+          const probe = await fbLoad(key);
+          if(!probe) return { ok:false, reason:"not-found" };
+        }catch(err){
+          console.error(err);
+          return { ok:false, reason:isPermissionErr(err)?"permission":"unknown" };
+        }
+      }
       setActiveHome(key); setDeviceHome(deviceId,key); setAuthed(true); setCatId(null);
       return { ok:true };
     }
@@ -741,9 +751,18 @@ function App(){
       const householdName = payload.householdName || "Home";
       const base = attachMember(mkHousehold(householdName,{name:householdName,cats:[],profiles:null,members:[memberUid]}));
       const nextData = { households:{ [householdId]: base } };
-      if(FB_ON && fbSave){ await fbSave(householdId, nextData); }
-      else await doSave(d=>({ ...d, households:{...(d?.households||{}), [householdId]: base }}));
-      await linkUserHome(householdId);
+      if(FB_ON && fbSave){
+        try{ await fbSave(householdId, nextData); }
+        catch(err){
+          console.error(err);
+          return { ok:false, reason:isPermissionErr(err)?"permission":"unknown" };
+        }
+      } else await doSave(d=>({ ...d, households:{...(d?.households||{}), [householdId]: base }}));
+      try{ await linkUserHome(householdId); }
+      catch(err){
+        console.error(err);
+        return { ok:false, reason:isPermissionErr(err)?"permission":"unknown" };
+      }
       setData(normalizeData(nextData)); dr.current=normalizeData(nextData);
       setActiveHome(householdId); setDeviceHome(deviceId, householdId); setAuthed(true); setCatId(null);
       return { ok:true };
@@ -754,7 +773,12 @@ function App(){
       if(!code) return { ok:false, reason:"invalid-invite" };
       let targetId = null;
       if(FB_ON && fbRedeemInvite && user?.uid){
-        const red = await fbRedeemInvite({ code, uid:user.uid });
+        let red = null;
+        try{ red = await fbRedeemInvite({ code, uid:user.uid }); }
+        catch(err){
+          console.error(err);
+          return { ok:false, reason:isPermissionErr(err)?"permission":"unknown" };
+        }
         if(!red.ok) return { ok:false, reason:red.reason };
         targetId = red.householdId;
       } else {
@@ -763,15 +787,32 @@ function App(){
         if(!targetId) return { ok:false, reason:"not-found" };
       }
       if(!targetId) return { ok:false, reason:"not-found" };
-      let remote = FB_ON && fbLoad ? await fbLoad(targetId) : dr.current;
+      let remote = dr.current;
+      if(FB_ON && fbLoad){
+        try{ remote = await fbLoad(targetId); }
+        catch(err){
+          console.error(err);
+          return { ok:false, reason:isPermissionErr(err)?"permission":"unknown" };
+        }
+      }
       const normalized = normalizeData(remote || {households:{}});
       const home = normalized.households?.[targetId];
       if(!home) return { ok:false, reason:"not-found" };
       const updatedHome = attachMember(home);
       const payloadData = { households:{ [targetId]: updatedHome } };
-      if(FB_ON && fbSave) await fbSave(targetId, payloadData);
+      if(FB_ON && fbSave){
+        try{ await fbSave(targetId, payloadData); }
+        catch(err){
+          console.error(err);
+          return { ok:false, reason:isPermissionErr(err)?"permission":"unknown" };
+        }
+      }
       else await doSave(d=>({ ...d, households:{...d.households,[targetId]:updatedHome} }));
-      await linkUserHome(targetId);
+      try{ await linkUserHome(targetId); }
+      catch(err){
+        console.error(err);
+        return { ok:false, reason:isPermissionErr(err)?"permission":"unknown" };
+      }
       setData(normalizeData(payloadData)); dr.current=normalizeData(payloadData);
       setActiveHome(targetId); setDeviceHome(deviceId, targetId); setAuthed(true); setCatId(null);
       return { ok:true };
