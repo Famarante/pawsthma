@@ -614,6 +614,8 @@ function App(){
   const [aKey,setAKey] = useState(0);
   const [af,setAf]     = useState({date:today(),severity:"mild",durationMin:"",durationSec:"0",notes:""});
   const [inf,setInf]   = useState({date:today(),breaths:2,dosage:"110mcg"});
+  const [editAttackId,setEditAttackId] = useState(null);
+  const [editInhalerId,setEditInhalerId] = useState(null);
   const [iif,setIif]   = useState(DEFAULT.inhalerInfo);
   const dr = useRef(null);
   const deviceId = useRef(getOrCreateDeviceId()).current;
@@ -929,43 +931,43 @@ function App(){
     if(!catId || !homeKey || !confirm(lang==="pt"?"Apagar esta crise?":"Delete this attack?")) return;
     await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:d.households[homeKey].cats.map(c=>c.id===catId?{...c,attacks:c.attacks.filter(a=>a.id!==id)}:c)}}}));
   };
-  const editAttack=async(attack)=>{
-    if(!catId || !homeKey) return;
-    const date = prompt(lang==="pt"?"Data (YYYY-MM-DD)":"Date (YYYY-MM-DD)", attack.date);
-    if(date===null) return;
-    const severity = prompt(lang==="pt"?"Gravidade (mild/moderate/severe)":"Severity (mild/moderate/severe)", attack.severity);
-    if(severity===null) return;
+  const editAttack=(attack)=>{
     const totalSec = Math.max(0,Math.round(Number(attack.duration||0)*60));
-    const curMin = Math.floor(totalSec/60);
-    const curSec = totalSec%60;
-    const mins = prompt(lang==="pt"?"Minutos":"Minutes", String(curMin));
-    if(mins===null) return;
-    const secs = prompt(lang==="pt"?"Segundos (0-59)":"Seconds (0-59)", String(curSec));
-    if(secs===null) return;
-    const notes = prompt(lang==="pt"?"Notas":"Notes", attack.notes||"");
-    if(notes===null) return;
-    const minN = Math.max(0, Number(mins||0));
-    const secN = Math.min(59, Math.max(0, Number(secs||0)));
-    const duration = (minN*60+secN)/60;
-    const sev = ["mild","moderate","severe"].includes((severity||"").trim()) ? severity.trim() : attack.severity;
-    if(!date || duration<=0){ alert(lang==="pt"?"Dados inválidos":"Invalid values"); return; }
-    await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:d.households[homeKey].cats.map(c=>c.id===catId?{...c,attacks:c.attacks.map(a=>a.id===attack.id?{...a,date,notes,severity:sev,duration}:a)}:c)}}}));
+    setAf({
+      date:attack.date||today(),
+      severity:["mild","moderate","severe"].includes(attack.severity)?attack.severity:"mild",
+      durationMin:String(Math.floor(totalSec/60)),
+      durationSec:String(totalSec%60),
+      notes:attack.notes||""
+    });
+    setEditAttackId(attack.id);
+    setModal("editAttack");
+  };
+  const saveEditedAttack=async()=>{
+    const mins=Math.max(0,Number(af.durationMin||0));
+    const secs=Math.min(59,Math.max(0,Number(af.durationSec||0)));
+    const duration=(mins*60+secs)/60;
+    if(duration<=0 || !catId || !homeKey || !editAttackId) return;
+    await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:d.households[homeKey].cats.map(c=>c.id===catId?{...c,attacks:c.attacks.map(a=>a.id===editAttackId?{...a,date:af.date,severity:af.severity,duration,notes:af.notes}:a)}:c)}}}));
+    setModal(null);
+    setEditAttackId(null);
+    setAf({date:today(),severity:"mild",durationMin:"",durationSec:"0",notes:""});
   };
   const deleteInhaler=async(id)=>{
     if(!catId || !homeKey || !confirm(lang==="pt"?"Apagar este registo de inalador?":"Delete this inhaler record?")) return;
     await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:d.households[homeKey].cats.map(c=>c.id===catId?{...c,inhalerLogs:c.inhalerLogs.filter(l=>l.id!==id)}:c)}}}));
   };
-  const editInhaler=async(log)=>{
-    if(!catId || !homeKey) return;
-    const date = prompt(lang==="pt"?"Data (YYYY-MM-DD)":"Date (YYYY-MM-DD)", log.date);
-    if(date===null) return;
-    const breaths = prompt(lang==="pt"?"Número de inspirações":"Number of breaths", String(log.breaths));
-    if(breaths===null) return;
-    const dosage = prompt(lang==="pt"?"Dosagem":"Dosage", log.dosage||"");
-    if(dosage===null) return;
-    const b = Math.max(1, Number(breaths||0));
-    if(!date || !dosage){ alert(lang==="pt"?"Dados inválidos":"Invalid values"); return; }
-    await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:d.households[homeKey].cats.map(c=>c.id===catId?{...c,inhalerLogs:c.inhalerLogs.map(l=>l.id===log.id?{...l,date,breaths:b,dosage}:l)}:c)}}}));
+  const editInhaler=(log)=>{
+    setInf({date:log.date||today(),breaths:Math.max(1,Number(log.breaths)||1),dosage:log.dosage||""});
+    setEditInhalerId(log.id);
+    setModal("editInhaler");
+  };
+  const saveEditedInhaler=async()=>{
+    if(!catId || !homeKey || !editInhalerId) return;
+    await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:d.households[homeKey].cats.map(c=>c.id===catId?{...c,inhalerLogs:c.inhalerLogs.map(l=>l.id===editInhalerId?{...l,date:inf.date,breaths:Math.max(1,Number(inf.breaths)||1),dosage:inf.dosage}:l)}:c)}}}));
+    setModal(null);
+    setEditInhalerId(null);
+    setInf({date:today(),breaths:2,dosage:"110mcg"});
   };
   const saveII=()=> homeKey && catId && doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],cats:d.households[homeKey].cats.map(c=>c.id===catId?{...c,inhalerInfo:{...iif}}:c)}}}));
   const saveProfiles=async(ps)=>{ if(!homeKey) return; await doSave(d=>({...d,households:{...d.households,[homeKey]:{...d.households[homeKey],profiles:ps}}})); setShowMgr(false); };
@@ -1199,8 +1201,8 @@ function App(){
     // Modals
     modal && e("div",{onClick:()=>setModal(null),style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",zIndex:200,display:"flex",alignItems:"flex-end",backdropFilter:"blur(6px)"}},
       e("div",{className:"su",onClick:ev=>ev.stopPropagation(),style:{background:"linear-gradient(180deg,#121827,#0d1220)",borderRadius:"28px 28px 0 0",padding:"28px 20px 52px",width:"100%",maxWidth:480,margin:"0 auto",border:`1px solid ${G.border}`,borderBottom:"none"}},
-        e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}},e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700}},modal==="attack"?t.attackModal:t.inhalerModal),e("button",{onClick:()=>setModal(null),style:{background:"rgba(255,255,255,0.07)",border:"none",borderRadius:50,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:G.muted,fontSize:16}},"✕")),
-        modal==="attack" && e("div",null,
+        e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}},e("div",{style:{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700}},(modal==="attack"||modal==="editAttack")?t.attackModal:t.inhalerModal),e("button",{onClick:()=>{setModal(null);setEditAttackId(null);setEditInhalerId(null);},style:{background:"rgba(255,255,255,0.07)",border:"none",borderRadius:50,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:G.muted,fontSize:16}},"✕")),
+        (modal==="attack" || modal==="editAttack") && e("div",null,
           e("div",{style:{marginBottom:16}},e("div",{style:lbl},t.date),e("input",{type:"date",value:af.date,onChange:ev=>setAf(f=>({...f,date:ev.target.value})),style:IS()})),
           e("div",{style:{marginBottom:16}},e("div",{style:lbl},t.severity),e("div",{style:{display:"flex",gap:8}},["mild","moderate","severe"].map(s=>e("button",{key:s,onClick:()=>setAf(f=>({...f,severity:s})),style:{flex:1,padding:"10px 4px",border:`1.5px solid ${af.severity===s?SEV[s]:"rgba(255,255,255,0.1)"}`,borderRadius:12,background:af.severity===s?`${SEV[s]}22`:"transparent",color:af.severity===s?SEV[s]:G.muted,cursor:"pointer",fontSize:11,fontWeight:600,transition:"all 0.2s"}},t.sevLabels[s])))),
           e("div",{style:{marginBottom:16}},e("div",{style:lbl},t.durLabel),
@@ -1210,13 +1212,13 @@ function App(){
             )
           ),
           e("div",{style:{marginBottom:16}},e("div",{style:lbl},t.notes),e("textarea",{value:af.notes,onChange:ev=>setAf(f=>({...f,notes:ev.target.value})),placeholder:t.notesP,rows:3,style:IS({resize:"none"})})),
-          e("button",{onClick:addAttack,style:{width:"100%",padding:"15px",borderRadius:16,border:"none",background:`linear-gradient(135deg,${G.coral},${G.coral}cc)`,color:"#0a0f1e",fontWeight:700,fontSize:15,cursor:"pointer",boxShadow:`0 6px 24px ${G.coral}40`}},t.saveAttack)
+          e("button",{onClick:modal==="editAttack"?saveEditedAttack:addAttack,style:{width:"100%",padding:"15px",borderRadius:16,border:"none",background:`linear-gradient(135deg,${G.coral},${G.coral}cc)`,color:"#0a0f1e",fontWeight:700,fontSize:15,cursor:"pointer",boxShadow:`0 6px 24px ${G.coral}40`}},modal==="editAttack"?`${t.edit} ${t.attackLog}`:t.saveAttack)
         ),
-        modal==="inhaler" && e("div",null,
+        (modal==="inhaler" || modal==="editInhaler") && e("div",null,
           e("div",{style:{marginBottom:16}},e("div",{style:lbl},t.date),e("input",{type:"date",value:inf.date,onChange:ev=>setInf(f=>({...f,date:ev.target.value})),style:IS()})),
           e("div",{style:{marginBottom:16}},e("div",{style:lbl},t.numBreaths),e("div",{style:{display:"flex",gap:8}},[1,2,3,4,5].map(n=>e("button",{key:n,onClick:()=>setInf(f=>({...f,breaths:n})),style:{flex:1,padding:"12px 4px",border:`1.5px solid ${inf.breaths===n?G.mint:"rgba(255,255,255,0.1)"}`,borderRadius:12,background:inf.breaths===n?"rgba(78,205,196,0.15)":"transparent",color:inf.breaths===n?G.mint:G.muted,cursor:"pointer",fontSize:16,fontWeight:700,transition:"all 0.2s"}},n))),e("input",{type:"number",min:1,step:1,value:inf.breaths,onChange:ev=>setInf(f=>({...f,breaths:Math.max(1,Number(ev.target.value)||1)})),style:IS({marginTop:8}),placeholder:t.numBreaths})),
           e("div",{style:{marginBottom:16}},e("div",{style:lbl},t.dosage),e("input",{value:inf.dosage,onChange:ev=>setInf(f=>({...f,dosage:ev.target.value})),placeholder:t.dosageP,style:IS()})),
-          e("button",{onClick:addInhaler,style:{width:"100%",padding:"15px",borderRadius:16,border:"none",background:`linear-gradient(135deg,${G.mint},${G.mint}cc)`,color:"#0a0f1e",fontWeight:700,fontSize:15,cursor:"pointer",boxShadow:`0 6px 24px ${G.mint}40`}},t.saveInhaler)
+          e("button",{onClick:modal==="editInhaler"?saveEditedInhaler:addInhaler,style:{width:"100%",padding:"15px",borderRadius:16,border:"none",background:`linear-gradient(135deg,${G.mint},${G.mint}cc)`,color:"#0a0f1e",fontWeight:700,fontSize:15,cursor:"pointer",boxShadow:`0 6px 24px ${G.mint}40`}},modal==="editInhaler"?`${t.edit} ${t.inhalerLog}`:t.saveInhaler)
         )
       )
     ),
