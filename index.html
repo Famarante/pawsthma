@@ -275,7 +275,18 @@ const DEFAULT = {
 
 const e = React.createElement;
 const today = () => new Date().toISOString().split("T")[0];
-const fmt = (d,lang) => new Date(d).toLocaleDateString(lang==="pt"?"pt-PT":"en-GB",{day:"numeric",month:"short"});
+const parseLocalDate = (value) => {
+  if (value instanceof Date) return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+  if (typeof value !== "string") return new Date(value);
+  const m = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return new Date(value);
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  return new Date(year, month - 1, day);
+};
+const fmtLocalDateKey = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+const fmt = (d,lang) => parseLocalDate(d).toLocaleDateString(lang==="pt"?"pt-PT":"en-GB",{day:"numeric",month:"short"});
 const daysBetween = (a,b) => Math.round((new Date(b)-new Date(a))/86400000);
 const nextId = (arr) => arr.length ? Math.max(...arr.map(x=>x.id))+1 : 1;
 const mkId = () => "p"+Math.random().toString(36).slice(2,7);
@@ -969,7 +980,8 @@ function App(){
   const attacks=Array.isArray(currentCat.attacks)?currentCat.attacks:[];
   const inhalerLogs=Array.isArray(currentCat.inhalerLogs)?currentCat.inhalerLogs:[];
   const sorted=[...attacks].sort((a,b)=>a.date.localeCompare(b.date));
-  const weekly=(()=>{ const m={}; sorted.forEach(a=>{ const d=new Date(a.date); const w=new Date(d.setDate(d.getDate()-d.getDay())).toISOString().split("T")[0]; if(!m[w])m[w]={label:fmt(w,lang),mild:0,moderate:0,severe:0}; m[w][a.severity]++; }); return Object.values(m).slice(-6); })();
+  const weekly=(()=>{ const m={}; sorted.forEach(a=>{ const d=parseLocalDate(a.date); const weekStart=new Date(d); const mondayOffset=(weekStart.getDay()+6)%7; weekStart.setDate(weekStart.getDate()-mondayOffset); const w=fmtLocalDateKey(weekStart); // Intentionally avoid toISOString(): UTC conversion can shift local calendar buckets by a day.
+    if(!m[w])m[w]={label:fmt(w,lang),mild:0,moderate:0,severe:0}; m[w][a.severity]++; }); return Object.values(m).slice(-6); })();
   const sevDist=(()=>{ const c={mild:0,moderate:0,severe:0}; attacks.forEach(a=>c[a.severity]++); return Object.entries(c).map(([n,v])=>({name:n,label:t.sevLabels[n],value:v})).filter(x=>x.value>0); })();
   const durTrend=sorted.map(a=>({date:fmt(a.date,lang),duration:a.duration}));
   const lastA=sorted[sorted.length-1];
