@@ -632,17 +632,17 @@ function App(){
     let unsub = null;
     (async()=>{
       try{
-        let remote = await fbLoad(activeHome);
-        if(!remote){
+        let remoteHome = await fbLoad(activeHome);
+        if(!remoteHome){
           const selfProfile = { id:user?.uid||mkId(), name:(user?.displayName||user?.email?.split("@")[0]||"User"), emoji:"🧑", color:PCOLS[0] };
-          remote = { households:{ [activeHome]: { ...mkHousehold(activeHome,{name:activeHome,cats:[],profiles:null}), profiles:[selfProfile] } } };
-          await fbSave(activeHome, remote);
+          remoteHome = { ...mkHousehold(activeHome,{name:activeHome,cats:[],profiles:null}), profiles:[selfProfile], memberKeys:{ ...(user?.uid ? { [user.uid]: true } : {}) } };
+          await fbSave(activeHome, remoteHome);
         }
-        const normalized = normalizeData(remote);
+        const normalized = normalizeData({ households:{ [activeHome]: remoteHome } });
         setData(normalized); dr.current=normalized;
         setSync("live"); setLastSt(Date.now());
         unsub = fbSubscribe(activeHome, inc=>{
-          const n = normalizeData(inc);
+          const n = normalizeData({ households:{ [activeHome]: inc } });
           setData(n); dr.current=n;
           setSync("updated"); setLastSt(Date.now());
           setTimeout(()=>setSync("live"),2500);
@@ -670,7 +670,7 @@ function App(){
     setData(next); dr.current=next;
     if(fbSave && user){
       setSync("loading");
-      const ok=await fbSave(homeKey, next).catch(()=>false);
+      const ok=await fbSave(homeKey, next?.households?.[homeKey] || null).catch(()=>false);
       setSync(ok?"live":"error");
       if(ok){setLastSt(Date.now());setSecs(0);}
     }else{ lsSave(next); }
@@ -769,7 +769,8 @@ function App(){
       const householdId = mkHouseholdId();
       const householdName = payload.householdName || "Home";
       const base = attachMember(mkHousehold(householdName,{name:householdName,cats:[],profiles:null,members:[memberUid]}));
-      const nextData = { households:{ [householdId]: base } };
+      const nextHome = base;
+      const nextData = { households:{ [householdId]: nextHome } };
       if(FB_ON){
         try{ await linkUserHome(householdId); }
         catch(err){
@@ -778,7 +779,7 @@ function App(){
         }
       }
       if(FB_ON && fbSave){
-        try{ await fbSave(householdId, nextData); }
+        try{ await fbSave(householdId, nextHome); }
         catch(err){
           console.error(err);
           return { ok:false, reason:isPermissionErr(err)?"permission":"unknown" };
@@ -822,21 +823,23 @@ function App(){
           return { ok:false, reason:isPermissionErr(err)?"permission":"unknown" };
         }
       }
-      let remote = dr.current;
+      let remoteHome = dr.current?.households?.[targetId] || null;
       if(FB_ON && fbLoad){
-        try{ remote = await fbLoad(targetId); }
+        try{ remoteHome = await fbLoad(targetId); }
         catch(err){
           console.error(err);
           return { ok:false, reason:isPermissionErr(err)?"permission":"unknown" };
         }
       }
-      const normalized = normalizeData(remote || {households:{}});
+      if(!remoteHome) return { ok:false, reason:"not-found" };
+      const normalized = normalizeData({ households:{ [targetId]: remoteHome } });
       const home = normalized.households?.[targetId];
       if(!home) return { ok:false, reason:"not-found" };
       const updatedHome = attachMember(home);
       const payloadData = { households:{ [targetId]: updatedHome } };
+      const payloadHome = updatedHome;
       if(FB_ON && fbSave){
-        try{ await fbSave(targetId, payloadData); }
+        try{ await fbSave(targetId, payloadHome); }
         catch(err){
           console.error(err);
           return { ok:false, reason:isPermissionErr(err)?"permission":"unknown" };
