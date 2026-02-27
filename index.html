@@ -981,7 +981,11 @@ function App(){
   const inhalerLogs=Array.isArray(currentCat.inhalerLogs)?currentCat.inhalerLogs:[];
   const sorted=[...attacks].sort((a,b)=>a.date.localeCompare(b.date));
   const weekly=(()=>{ const m={}; sorted.forEach(a=>{ const d=parseLocalDate(a.date); const weekStart=new Date(d); const mondayOffset=(weekStart.getDay()+6)%7; weekStart.setDate(weekStart.getDate()-mondayOffset); const w=fmtLocalDateKey(weekStart); // Intentionally avoid toISOString(): UTC conversion can shift local calendar buckets by a day.
-    if(!m[w])m[w]={label:fmt(w,lang),mild:0,moderate:0,severe:0}; m[w][a.severity]++; }); return Object.values(m).slice(-6); })();
+    if(!m[w])m[w]={label:fmt(a.date,lang),latestDate:a.date,mild:0,moderate:0,severe:0};
+    if(a.date>m[w].latestDate){ m[w].latestDate=a.date; m[w].label=fmt(a.date,lang); }
+    m[w][a.severity]++; });
+    return Object.values(m).map(({latestDate,...rest})=>rest).slice(-6);
+  })();
   const sevDist=(()=>{ const c={mild:0,moderate:0,severe:0}; attacks.forEach(a=>c[a.severity]++); return Object.entries(c).map(([n,v])=>({name:n,label:t.sevLabels[n],value:v})).filter(x=>x.value>0); })();
   const durTrend=sorted.map(a=>({date:fmt(a.date,lang),duration:a.duration}));
   const lastA=sorted[sorted.length-1];
