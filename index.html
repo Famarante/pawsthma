@@ -474,13 +474,17 @@ function AuthGate({lang,setLang,onAuth}){
 
 function LoginGate({lang,setLang,onSubmit,account,householdOptions=[]}){
   const t = T[lang];
-  const hasSavedHomes = householdOptions.length > 0;
+  const options = householdOptions
+    .map((h)=>typeof h === "string" ? { id:h, label:h } : { id:h?.id||"", label:h?.label||h?.name||h?.id||"" })
+    .filter((o)=>o.id);
+  const hasSavedHomes = options.length > 0;
   const [mode,setMode] = useState(hasSavedHomes?"open":"create");
   const [household,setHousehold] = useState("");
-  const [selectedHousehold,setSelectedHousehold] = useState(householdOptions[0] || "");
+  const [selectedHousehold,setSelectedHousehold] = useState(options[0]?.id || "");
   const [inviteCode,setInviteCode] = useState("");
   const [err,setErr] = useState(null);
-  useEffect(()=>{ if(!householdOptions.includes(selectedHousehold)) setSelectedHousehold(householdOptions[0]||""); },[householdOptions,selectedHousehold]);
+  useEffect(()=>{ if(!hasSavedHomes && mode==="open") setMode("create"); },[hasSavedHomes,mode]);
+  useEffect(()=>{ if(!options.some(o=>o.id===selectedHousehold)) setSelectedHousehold(options[0]?.id||""); },[options,selectedHousehold]);
   const submit = () => {
     if(mode==="open"){ if(!selectedHousehold){ setErr(t.loginNeedHousehold); return; } onSubmit({action:"open", householdId:selectedHousehold}); return; }
     if(mode==="create"){ if(!household.trim()){ setErr(t.loginNeedHousehold); return; } onSubmit({action:"create", householdName:household.trim()}); return; }
@@ -499,7 +503,7 @@ function LoginGate({lang,setLang,onSubmit,account,householdOptions=[]}){
         e("button",{onClick:()=>{setMode("create");setErr(null);},style:{flex:1,padding:"8px",borderRadius:10,border:"none",background:mode==="create"?`${G.amber}33`:"rgba(255,255,255,0.05)",color:mode==="create"?G.amber:G.muted,cursor:"pointer"}},t.addHousehold),
         e("button",{onClick:()=>{setMode("join");setErr(null);},style:{flex:1,padding:"8px",borderRadius:10,border:"none",background:mode==="join"?`${G.amber}33`:"rgba(255,255,255,0.05)",color:mode==="join"?G.amber:G.muted,cursor:"pointer"}},t.joinWithInvite)
       ),
-      mode==="open" && hasSavedHomes && e("div",{style:{marginBottom:12}}, householdOptions.map(home=>e("button",{key:home,onClick:()=>{setSelectedHousehold(home);setErr(null);},style:{width:"100%",textAlign:"left",padding:"11px 12px",marginBottom:8,borderRadius:12,border:`1.5px solid ${selectedHousehold===home?G.amber:G.border}`,background:selectedHousehold===home?`${G.amber}1f`:"transparent",color:selectedHousehold===home?G.amber:G.text,cursor:"pointer",fontWeight:600}},`🏠 ${home}`))),
+      mode==="open" && hasSavedHomes && e("div",{style:{marginBottom:12}}, options.map(home=>e("button",{key:home.id,onClick:()=>{setSelectedHousehold(home.id);setErr(null);},style:{width:"100%",textAlign:"left",padding:"11px 12px",marginBottom:8,borderRadius:12,border:`1.5px solid ${selectedHousehold===home.id?G.amber:G.border}`,background:selectedHousehold===home.id?`${G.amber}1f`:"transparent",color:selectedHousehold===home.id?G.amber:G.text,cursor:"pointer",fontWeight:600}},`🏠 ${home.label}`))),
       mode==="create" && e("div",{style:{marginBottom:12}}, e("input",{value:household,onChange:ev=>{setHousehold(ev.target.value);setErr(null);},placeholder:t.householdName,style:IS()})),
       mode==="join" && e("div",{style:{marginBottom:12}}, e("input",{value:inviteCode,onChange:ev=>{setInviteCode(ev.target.value);setErr(null);},placeholder:t.inviteHint,style:IS()})),
       err && e("div",{style:{fontSize:12,color:G.coral,marginBottom:12}},err),
@@ -574,6 +578,7 @@ function App(){
   const [authed,setAuthed] = useState(false);
   const [user,setUser] = useState(null);
   const [userHomes,setUserHomes] = useState([]);
+  const [homeNames,setHomeNames] = useState({});
   const [authReady,setAuthReady] = useState(!FB_ON);
   const [activeHome,setActiveHome] = useState(null);
   const [sync,setSync] = useState("loading");
@@ -606,6 +611,14 @@ function App(){
           const linkedHomes = meta.households && typeof meta.households === "object" ? Object.keys(meta.households) : [];
           setUid(user.uid);
           setUserHomes(linkedHomes);
+          if (fbLoad && linkedHomes.length){
+            Promise.all(linkedHomes.map(async(id)=>{
+              try{ const h = await fbLoad(id); return [id, (h?.name||id).toString()]; }
+              catch{ return [id, id]; }
+            })).then(entries=>setHomeNames(Object.fromEntries(entries)));
+          } else {
+            setHomeNames({});
+          }
           const remembered = getDeviceHome(deviceId);
           const initialHome = linkedHomes.includes(remembered) ? remembered : (linkedHomes[0] || null);
           setActiveHome(initialHome);
@@ -730,12 +743,14 @@ function App(){
     const linkUserHome = async(id)=>{
       if(!fbSaveUserMeta || !user?.uid){
         setUserHomes(Array.from(new Set([...(userHomes||[]), id])));
+        setHomeNames(prev=>({ ...prev, [id]: prev[id] || id }));
         return;
       }
       const nextHomes = Array.from(new Set([...(userHomes||[]), id]));
       const householdsByKey = nextHomes.reduce((acc,h)=>{ acc[h]=true; return acc; }, {});
       await fbSaveUserMeta(user.uid, { households: householdsByKey });
       setUserHomes(nextHomes);
+      setHomeNames(prev=>({ ...prev, [id]: prev[id] || id }));
     };
     const attachMember = (home)=>{
       const profiles = Array.isArray(home.profiles) ? home.profiles : [];
@@ -926,7 +941,7 @@ function App(){
     e("div",{className:"blink",style:{fontSize:13,color:G.muted}},"Loading…")
   );
 
-  if(!authed) return e(LoginGate,{lang,setLang,account:user?.email||user?.displayName||"",householdOptions:userHomes,onSubmit:async(payload)=>{
+  if(!authed) return e(LoginGate,{lang,setLang,account:user?.email||user?.displayName||"",householdOptions:userHomes.map(id=>({id,label:homeNames[id]||id})),onSubmit:async(payload)=>{
     const res=await saveAuth(payload);
     if(!res.ok){
       if(res.reason==="not-found"||res.reason==="invalid-invite") alert(t.inviteInvalid);
@@ -935,7 +950,7 @@ function App(){
       else alert(res.reason==="permission"?t.householdAccessDenied:t.authError);
     }
   }});
-  if(!currentHome) return e(LoginGate,{lang,setLang,account:user?.email||user?.displayName||"",householdOptions:userHomes,onSubmit:async(payload)=>{
+  if(!currentHome) return e(LoginGate,{lang,setLang,account:user?.email||user?.displayName||"",householdOptions:userHomes.map(id=>({id,label:homeNames[id]||id})),onSubmit:async(payload)=>{
     const res=await saveAuth(payload);
     if(!res.ok){
       if(res.reason==="not-found"||res.reason==="invalid-invite") alert(t.inviteInvalid);
