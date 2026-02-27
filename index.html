@@ -806,6 +806,13 @@ function App(){
         if(!targetId) return { ok:false, reason:"not-found" };
       }
       if(!targetId) return { ok:false, reason:"not-found" };
+      if(FB_ON){
+        try{ await linkUserHome(targetId); }
+        catch(err){
+          console.error(err);
+          return { ok:false, reason:isPermissionErr(err)?"permission":"unknown" };
+        }
+      }
       let remote = dr.current;
       if(FB_ON && fbLoad){
         try{ remote = await fbLoad(targetId); }
@@ -827,10 +834,12 @@ function App(){
         }
       }
       else await doSave(d=>({ ...d, households:{...d.households,[targetId]:updatedHome} }));
-      try{ await linkUserHome(targetId); }
-      catch(err){
-        console.error(err);
-        return { ok:false, reason:isPermissionErr(err)?"permission":"unknown" };
+      if(!FB_ON){
+        try{ await linkUserHome(targetId); }
+        catch(err){
+          console.error(err);
+          return { ok:false, reason:isPermissionErr(err)?"permission":"unknown" };
+        }
       }
       setData(normalizeData(payloadData)); dr.current=normalizeData(payloadData);
       setActiveHome(targetId); setDeviceHome(deviceId, targetId); setAuthed(true); setCatId(null);
