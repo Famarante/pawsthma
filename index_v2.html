@@ -1,0 +1,3677 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#FF7E67">
+  <title>Pawsthma</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..700,0..1,-50..200&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; min-height: 100vh; min-height: 100dvh;
+      font-family: 'Plus Jakarta Sans', -apple-system, system-ui, sans-serif;
+      background: #E5EAE8; color: #0F1A18; -webkit-font-smoothing: antialiased; }
+    #root { display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; }
+    .scroll::-webkit-scrollbar { display: none; }
+    .scroll { scrollbar-width: none; -ms-overflow-style: none; }
+    .material-symbols-rounded {
+      font-family: 'Material Symbols Rounded'; font-weight: normal; font-style: normal;
+      line-height: 1; letter-spacing: normal; text-transform: none;
+      display: inline-block; white-space: nowrap; word-wrap: normal; direction: ltr;
+      -webkit-font-feature-settings: 'liga'; -webkit-font-smoothing: antialiased;
+      user-select: none;
+    }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .screen-anim { animation: fadeIn 0.22s ease-out; }
+    @keyframes scrim-in { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes sheet-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
+    .sheet-anim { animation: sheet-up 0.28s cubic-bezier(0.32, 0.72, 0, 1); }
+    /* Responsive app shell — phone-like on mobile, max-width centered card on desktop. */
+    .pw-app {
+      width: 100%; max-width: 480px; margin: 0 auto;
+      flex: 1 1 auto; min-height: 100vh; min-height: 100dvh;
+      display: flex; flex-direction: column;
+      position: relative; overflow: hidden;
+      background: #F5F8F8;
+    }
+    @media (min-width: 768px) {
+      .pw-app {
+        margin: 4vh auto;
+        height: 92vh; min-height: 0;
+        border-radius: 28px;
+        box-shadow: 0 30px 80px rgba(0,0,0,0.18);
+        border: 1px solid rgba(0,0,0,0.06);
+      }
+    }
+    .pw-loading {
+      position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+      color: #56625F; font-size: 14px; font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"><div class="pw-loading">Loading…</div></div>
+
+  <!-- Firebase ES-module bootstrap. Exposes window.__pawFB and dispatches `paw-fb-ready`. -->
+  <script type="module">
+    const FIREBASE_CONFIG = {
+      apiKey: "AIzaSyC9G95r3-vYEvSF8SjQgYenfbSwexsoSHk",
+      authDomain: "pawsthma.firebaseapp.com",
+      projectId: "pawsthma",
+      databaseURL: "https://pawsthma-default-rtdb.europe-west1.firebasedatabase.app/",
+      storageBucket: "pawsthma.firebasestorage.app",
+      messagingSenderId: "416458724436",
+      appId: "1:416458724436:web:305b100e62429fbd7189c1"
+    };
+    const ready = (api) => {
+      window.__pawFB = api;
+      window.dispatchEvent(new Event('paw-fb-ready'));
+    };
+    try {
+      const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js");
+      const { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } =
+        await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js");
+      const { getDatabase, ref, get, set, update, onValue } =
+        await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js");
+      const app = initializeApp(FIREBASE_CONFIG);
+      const auth = getAuth(app);
+      const db = getDatabase(app);
+      const fb = {
+        enabled: true,
+        fbAuthObserve: (cb) => onAuthStateChanged(auth, (u) => cb(u)),
+        fbSignIn: (email, pw) => signInWithEmailAndPassword(auth, email, pw),
+        fbSignUp: (email, pw) => createUserWithEmailAndPassword(auth, email, pw),
+        fbSignOut: () => signOut(auth),
+        fbLoad: async (homeId) => {
+          const snap = await get(ref(db, `pawsthma/households/${homeId}`));
+          return snap.exists() ? snap.val() : null;
+        },
+        fbSave: async (homeId, home) => {
+          if (!home) return false;
+          await set(ref(db, `pawsthma/households/${homeId}`), home);
+          return true;
+        },
+        fbSubscribe: (homeId, cb) => onValue(ref(db, `pawsthma/households/${homeId}`), (snap) => cb(snap.exists() ? snap.val() : null)),
+        fbLoadUserMeta: async (uid) => {
+          const snap = await get(ref(db, `pawsthma/users/${uid}`));
+          return snap.exists() ? snap.val() : null;
+        },
+        fbSaveUserMeta: async (uid, meta) => { await update(ref(db, `pawsthma/users/${uid}`), meta); },
+        fbCreateInvite: async ({ code, householdId, createdBy, createdAt, expiresAt }) => {
+          await set(ref(db, `pawsthma/invites/${code}`), {
+            code, householdId, createdBy,
+            createdAt: createdAt ?? Date.now(),
+            expiresAt: expiresAt ?? (Date.now() + 7*24*60*60*1000),
+            usedBy: null, usedAt: null,
+          });
+          return true;
+        },
+        fbRedeemInvite: async ({ code, uid }) => {
+          const r = ref(db, `pawsthma/invites/${code}`);
+          const snap = await get(r);
+          const invite = snap.val();
+          if (!invite) return { ok:false, reason:'not-found' };
+          if (invite.usedBy) return { ok:false, reason:'used' };
+          if (invite.expiresAt && Date.now() > invite.expiresAt) return { ok:false, reason:'expired' };
+          await update(r, { usedBy: uid, usedAt: Date.now() });
+          return { ok:true, householdId: invite.householdId };
+        },
+      };
+      ready(fb);
+    } catch (err) {
+      console.error('Firebase failed to load — falling back to local mode', err);
+      ready({ enabled: false });
+    }
+  </script>
+
+  <!-- React 18 + Babel Standalone (transpiles JSX in browser at load time) -->
+  <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+
+  <!-- Stubs replacing claude.ai/design chrome. The redesign code references these
+       symbols (useTweaks, TweaksPanel, AndroidStatusBar, AndroidNavBar) but we
+       removed all real usage in port-app — these stubs just prevent ReferenceErrors
+       and give useTweaks real session-only state for the few things it drives. -->
+  <script>
+    window.useTweaks = function(defaults) {
+      const [v, setV] = React.useState(defaults);
+      const setTweak = React.useCallback(function(keyOrEdits, val) {
+        const edits = (typeof keyOrEdits === 'object' && keyOrEdits !== null) ? keyOrEdits : { [keyOrEdits]: val };
+        setV(function(prev) { return Object.assign({}, prev, edits); });
+      }, []);
+      return [v, setTweak];
+    };
+    var _noop = function() { return null; };
+    window.TweaksPanel = _noop; window.TweakSection = _noop; window.TweakRow = _noop;
+    window.TweakSlider = _noop; window.TweakToggle = _noop; window.TweakRadio = _noop;
+    window.TweakSelect = _noop; window.TweakText = _noop; window.TweakNumber = _noop;
+    window.TweakColor = _noop; window.TweakButton = _noop;
+    window.AndroidStatusBar = _noop; window.AndroidNavBar = _noop;
+    window.AndroidAppBar = _noop; window.AndroidListItem = _noop;
+    window.AndroidKeyboard = _noop; window.AndroidDevice = _noop;
+  </script>
+  <!-- i18n -->
+  <script type="text/babel" data-presets="react" data-type="module">
+// i18n.jsx — minimal i18next-style translator with EN/PT
+
+const I18N = {
+  en: {
+    // greetings
+    goodMorning: 'Good morning',
+    goodAfternoon: 'Good afternoon',
+    goodEvening: 'Good evening',
+    // home
+    noAttacksToday: 'No attacks today',
+    attackToday: '{n} attack today',
+    attacksToday: '{n} attacks today',
+    track: 'TRACK',
+    treat: 'TREAT',
+    recordAttack: 'Record\nattack',
+    logInhaler: 'Log\ninhaler',
+    maintenance: 'MAINTENANCE',
+    inhalerChamberClean: 'Inhaler chamber clean',
+    dueInDays: 'Due in {n} days · AeroKat',
+    thisWeek: 'This week',
+    viewAll: 'View all',
+    attacksLabel: 'attacks',
+    dosesGiven: '{n} doses given',
+    doses: 'Doses',
+    attacks: 'Attacks',
+    today: 'Today',
+    noActivityYet: 'No activity yet — tap a card above to log.',
+    household: 'Household',
+    active: 'ACTIVE',
+    by: 'by',
+    min: 'min',
+    doseGiven: 'dose given',
+    breaths: 'breaths',
+    // history
+    attackHistory: 'Attack history',
+    logged: '{n} logged',
+    all: 'All',
+    mild: 'Mild',
+    moderate: 'Moderate',
+    severe: 'Severe',
+    noAttacks: 'No attacks',
+    nothingMatches: 'Nothing matches this filter.',
+    inhalerUsed: 'Inhaler used',
+    noMeds: 'No meds',
+    logAttack: 'Log attack',
+    // insights
+    healthInsights: 'Health insights',
+    last30Days: 'Last 30 days',
+    adherence: 'Adherence',
+    trend: 'Trend',
+    attackFrequency: 'Attack frequency',
+    downFromLast: 'Down from last period',
+    severityBreakdown: 'Severity breakdown',
+    topTriggers: 'Top triggers',
+    activityHeatmap: 'Activity heatmap',
+    last12Weeks: 'Last 12 weeks',
+    less: 'Less',
+    more: 'More',
+    // inhaler hub
+    inhalerHub: 'Inhaler hub',
+    deviceMedication: 'Device & medication',
+    activeDevice: 'ACTIVE DEVICE',
+    aeroKat: 'AeroKat Chamber',
+    connected: 'Connected · last sync 2m ago',
+    leftPct: '{n}% left',
+    lastUse: 'Last use',
+    todayShort: 'Today',
+    streak: 'Streak',
+    medications: 'Medications',
+    rescue: 'RESCUE',
+    maintenanceBadge: 'MAINTENANCE',
+    resetCleaningTimer: 'Reset cleaning timer',
+    usageHistory: 'Usage history',
+    missedDose: 'Missed dose',
+    reason: 'Reason',
+    skipped: 'SKIPPED',
+    loggedBadge: 'LOGGED',
+    // profile
+    profile: 'Profile',
+    yearsOld: 'years old',
+    diagnosis: 'DIAGNOSIS',
+    felineAsthma: 'Feline asthma',
+    diagnosedJune: 'Diagnosed June 2023 via X-ray',
+    veterinarian: 'Veterinarian',
+    currentMedications: 'Current medications',
+    editProfile: 'Edit profile',
+    // login
+    breatheEasy: 'Breathe easy, little friend.',
+    email: 'Email',
+    password: 'Password',
+    forgotPassword: 'Forgot password?',
+    signIn: 'Sign in',
+    or: 'OR',
+    continueGoogle: 'Continue with Google',
+    noAccount: "Don't have an account?",
+    createOne: 'Create one',
+    // sheets
+    severity: 'Severity',
+    duration: 'Duration (minutes)',
+    inhalerUsedQ: 'Inhaler used?',
+    yes: 'Yes',
+    no: 'No',
+    loggedBy: 'Logged by',
+    notes: 'Notes',
+    notesP: 'Triggers, behavior, context…',
+    saveAttack: 'Save attack',
+    medication: 'Medication',
+    breathsTaken: 'Breaths taken',
+    administeredBy: 'Administered by',
+    notesOptional: 'Notes (optional)',
+    notesInhalerP: 'Coughing, wheezing, behavior…',
+    saveDose: 'Save dose',
+    quickLog: 'Quick log',
+    chooseAction: 'What would you like to record?',
+    forCat: 'For {name} · {time}',
+    loggingFor: 'Logging for {name} · {time}',
+    // edit / detail
+    attackDetails: 'Attack details',
+    inhalerDetails: 'Dose details',
+    edit: 'Edit',
+    delete: 'Delete',
+    deleteAttackConfirm: 'Delete this attack?',
+    deleteInhalerConfirm: 'Delete this inhaler record?',
+    cancel: 'Cancel',
+    save: 'Save',
+    confirm: 'Confirm',
+    // onboarding
+    welcomeTitle: 'Welcome to Pawsthma',
+    welcomeSub: 'Track feline asthma together — never miss a dose.',
+    getStarted: 'Get started',
+    iHaveAccount: 'I have an account',
+    setupCatTitle: "Set up your cat",
+    setupCatSub: 'Every household starts with at least one cat.',
+    catName: 'Cat name',
+    breed: 'Breed',
+    weightKg: 'Weight (kg)',
+    diagnosisDate: 'Diagnosis date',
+    next: 'Next',
+    skip: 'Skip for now',
+    addPhoto: 'Add photo',
+    setupProfilesTitle: "Who's caring for {name}?",
+    setupProfilesSub: 'Add everyone who logs attacks or doses. They sync in real time.',
+    addPerson: '+ Add person',
+    namePlaceholder: 'Name…',
+    letsGo: "Let's go →",
+    youreReady: "You're all set!",
+    youreReadySub: "{name} is ready to be tracked. Let's breathe easy, together.",
+    enterApp: 'Enter Pawsthma',
+    step: 'Step {n} of {total}',
+    // tweaks
+    onboarding: 'Onboarding',
+  },
+  pt: {
+    goodMorning: 'Bom dia',
+    goodAfternoon: 'Boa tarde',
+    goodEvening: 'Boa noite',
+    noAttacksToday: 'Nenhuma crise hoje',
+    attackToday: '{n} crise hoje',
+    attacksToday: '{n} crises hoje',
+    track: 'REGISTAR',
+    treat: 'TRATAR',
+    recordAttack: 'Registar\ncrise',
+    logInhaler: 'Registar\ninalador',
+    maintenance: 'MANUTENÇÃO',
+    inhalerChamberClean: 'Limpeza da câmara',
+    dueInDays: 'Em {n} dias · AeroKat',
+    thisWeek: 'Esta semana',
+    viewAll: 'Ver tudo',
+    attacksLabel: 'crises',
+    dosesGiven: '{n} doses dadas',
+    doses: 'Doses',
+    attacks: 'Crises',
+    today: 'Hoje',
+    noActivityYet: 'Sem atividade — toca num cartão para registar.',
+    household: 'Casa',
+    active: 'ATIVO',
+    by: 'por',
+    min: 'min',
+    doseGiven: 'dose dada',
+    breaths: 'inspirações',
+    attackHistory: 'Histórico de crises',
+    logged: '{n} registadas',
+    all: 'Todas',
+    mild: 'Ligeira',
+    moderate: 'Moderada',
+    severe: 'Grave',
+    noAttacks: 'Sem crises',
+    nothingMatches: 'Nada corresponde a este filtro.',
+    inhalerUsed: 'Inalador usado',
+    noMeds: 'Sem medicação',
+    logAttack: 'Registar crise',
+    healthInsights: 'Análise de saúde',
+    last30Days: 'Últimos 30 dias',
+    adherence: 'Adesão',
+    trend: 'Tendência',
+    attackFrequency: 'Frequência de crises',
+    downFromLast: 'Menos que no período anterior',
+    severityBreakdown: 'Distribuição por gravidade',
+    topTriggers: 'Principais gatilhos',
+    activityHeatmap: 'Mapa de atividade',
+    last12Weeks: 'Últimas 12 semanas',
+    less: 'Menos',
+    more: 'Mais',
+    inhalerHub: 'Centro do inalador',
+    deviceMedication: 'Dispositivo & medicação',
+    activeDevice: 'DISPOSITIVO ATIVO',
+    aeroKat: 'Câmara AeroKat',
+    connected: 'Ligado · sincronizado há 2m',
+    leftPct: '{n}% restante',
+    lastUse: 'Último uso',
+    todayShort: 'Hoje',
+    streak: 'Sequência',
+    medications: 'Medicação',
+    rescue: 'RESGATE',
+    maintenanceBadge: 'MANUTENÇÃO',
+    resetCleaningTimer: 'Reiniciar temporizador',
+    usageHistory: 'Histórico de uso',
+    missedDose: 'Dose perdida',
+    reason: 'Motivo',
+    skipped: 'PERDIDA',
+    loggedBadge: 'REGISTADA',
+    profile: 'Perfil',
+    yearsOld: 'anos',
+    diagnosis: 'DIAGNÓSTICO',
+    felineAsthma: 'Asma felina',
+    diagnosedJune: 'Diagnóstico em Junho 2023 via raio-X',
+    veterinarian: 'Veterinário',
+    currentMedications: 'Medicação atual',
+    editProfile: 'Editar perfil',
+    breatheEasy: 'Respira fundo, pequenote.',
+    email: 'Email',
+    password: 'Palavra-passe',
+    forgotPassword: 'Esqueceste-te?',
+    signIn: 'Entrar',
+    or: 'OU',
+    continueGoogle: 'Continuar com Google',
+    noAccount: 'Não tens conta?',
+    createOne: 'Cria uma',
+    severity: 'Gravidade',
+    duration: 'Duração (minutos)',
+    inhalerUsedQ: 'Inalador usado?',
+    yes: 'Sim',
+    no: 'Não',
+    loggedBy: 'Registado por',
+    notes: 'Notas',
+    notesP: 'Gatilhos, comportamento, contexto…',
+    saveAttack: 'Guardar crise',
+    medication: 'Medicação',
+    breathsTaken: 'Inspirações',
+    administeredBy: 'Administrado por',
+    notesOptional: 'Notas (opcional)',
+    notesInhalerP: 'Tosse, pieira, comportamento…',
+    saveDose: 'Guardar dose',
+    quickLog: 'Registo rápido',
+    chooseAction: 'O que queres registar?',
+    forCat: 'Para {name} · {time}',
+    loggingFor: 'A registar para {name} · {time}',
+    attackDetails: 'Detalhes da crise',
+    inhalerDetails: 'Detalhes da dose',
+    edit: 'Editar',
+    delete: 'Apagar',
+    deleteAttackConfirm: 'Apagar esta crise?',
+    deleteInhalerConfirm: 'Apagar este registo?',
+    cancel: 'Cancelar',
+    save: 'Guardar',
+    confirm: 'Confirmar',
+    welcomeTitle: 'Bem-vindo ao Pawsthma',
+    welcomeSub: 'Acompanha a asma felina em conjunto — nunca falhes uma dose.',
+    getStarted: 'Começar',
+    iHaveAccount: 'Já tenho conta',
+    setupCatTitle: 'Configura o teu gato',
+    setupCatSub: 'Cada casa começa por configurar pelo menos um gato.',
+    catName: 'Nome do gato',
+    breed: 'Raça',
+    weightKg: 'Peso (kg)',
+    diagnosisDate: 'Data do diagnóstico',
+    next: 'Seguinte',
+    skip: 'Saltar',
+    addPhoto: 'Adicionar foto',
+    setupProfilesTitle: 'Quem cuida do(a) {name}?',
+    setupProfilesSub: 'Adiciona todos quem regista crises ou doses. Sincroniza em tempo real.',
+    addPerson: '+ Adicionar pessoa',
+    namePlaceholder: 'Nome…',
+    letsGo: 'Vamos lá →',
+    youreReady: 'Está tudo pronto!',
+    youreReadySub: '{name} está pronto para ser acompanhado. Respira fundo, contigo.',
+    enterApp: 'Entrar no Pawsthma',
+    step: 'Passo {n} de {total}',
+    onboarding: 'Onboarding',
+  },
+};
+
+const LangCtx = React.createContext({ lang: 'en', t: (k) => k, setLang: () => {} });
+const useT = () => React.useContext(LangCtx);
+function tr(lang, key, vars) {
+  let s = (I18N[lang] && I18N[lang][key]) || I18N.en[key] || key;
+  if (vars) for (const k of Object.keys(vars)) s = s.replaceAll(`{${k}}`, vars[k]);
+  return s;
+}
+
+Object.assign(window, { I18N, LangCtx, useT, tr });
+
+  </script>
+
+  <!-- design system + theme + primitives -->
+  <script type="text/babel" data-presets="react" data-type="module">
+// components.jsx — Pawsthma design system primitives
+
+// ─── Theme & tokens ───────────────────────────────────────────
+const ACCENTS = {
+  coral: { p: '#FF7E67', pDim: '#FFB8A8', pCont: '#FFE4DC', onPCont: '#5C1F12', tint: 'rgba(255,126,103,0.10)' },
+  indigo:{ p: '#7C5CFF', pDim: '#B7A4FF', pCont: '#E7DEFF', onPCont: '#260C7B', tint: 'rgba(124,92,255,0.10)' },
+  mint:  { p: '#1E9E94', pDim: '#7FD3CB', pCont: '#CDEBE7', onPCont: '#003733', tint: 'rgba(30,158,148,0.10)' },
+  plum:  { p: '#A4407C', pDim: '#E5A8CD', pCont: '#FFD8EA', onPCont: '#3D0027', tint: 'rgba(164,64,124,0.10)' },
+};
+
+function buildTheme({ accent = 'coral', dark = false, density = 'cozy' }) {
+  const a = ACCENTS[accent] || ACCENTS.coral;
+  const compact = density === 'compact';
+  if (dark) {
+    return {
+      a,
+      bg: '#10171A',
+      surface: '#10171A',
+      surfaceDim: '#0B1114',
+      surfaceContainer: '#1A2226',
+      surfaceContainerHigh: '#222B30',
+      surfaceContainerHighest: '#2A3338',
+      onSurface: '#E2EAEC',
+      onSurfaceVar: '#A2B1B5',
+      outline: '#384247',
+      outlineVar: '#22292D',
+      // semantic
+      sevMild:    '#34D9C9',
+      sevModerate:'#F5B441',
+      sevSevere:  '#FF7775',
+      success:    '#34D9C9',
+      warning:    '#F5B441',
+      info:       '#7CB7FF',
+      // type
+      pad: compact ? 12 : 16,
+      gap: compact ? 10 : 14,
+      density,
+      dark,
+      accent,
+    };
+  }
+  return {
+    a,
+    bg: '#F5F8F8',
+    surface: '#FFFFFF',
+    surfaceDim: '#EEF2F2',
+    surfaceContainer: '#FFFFFF',
+    surfaceContainerHigh: '#F5F8F8',
+    surfaceContainerHighest: '#EAEEEE',
+    onSurface: '#0F1A18',
+    onSurfaceVar: '#56625F',
+    outline: '#C8D0CE',
+    outlineVar: '#E5EAE8',
+    sevMild:    '#1E9E94',
+    sevModerate:'#D48E1A',
+    sevSevere:  '#E04545',
+    success:    '#1E9E94',
+    warning:    '#D48E1A',
+    info:       '#3F6FBF',
+    pad: compact ? 12 : 16,
+    gap: compact ? 10 : 14,
+    density,
+    dark,
+    accent,
+  };
+}
+const ThemeCtx = React.createContext(buildTheme({}));
+const useTheme = () => React.useContext(ThemeCtx);
+
+// ─── Icon ─────────────────────────────────────────────────────
+function Icon({ name, size = 24, fill = false, weight = 500, color, style }) {
+  return (
+    <span
+      className={'material-symbols-rounded' + (fill ? ' ic-fill' : '')}
+      style={{
+        fontSize: size,
+        color: color || 'inherit',
+        fontVariationSettings: `'opsz' ${size}, 'GRAD' 0, 'wght' ${weight}, 'FILL' ${fill ? 1 : 0}`,
+        ...style,
+      }}
+    >{name}</span>
+  );
+}
+
+// ─── Surfaces ─────────────────────────────────────────────────
+function Card({ children, style, padded = true, onClick, tone, ...rest }) {
+  const t = useTheme();
+  const bg = tone === 'tint' ? t.a.tint : tone === 'dim' ? t.surfaceDim : t.surfaceContainer;
+  return (
+    <div onClick={onClick} style={{
+      background: bg,
+      borderRadius: 24,
+      border: `1px solid ${t.outlineVar}`,
+      padding: padded ? t.pad + 4 : 0,
+      transition: 'transform .15s ease, background .2s',
+      cursor: onClick ? 'pointer' : 'default',
+      ...style,
+    }} {...rest}>
+      {children}
+    </div>
+  );
+}
+
+function Chip({ children, selected, onClick, leadingIcon, color, style }) {
+  const t = useTheme();
+  const bg = selected ? (color || t.a.pCont) : 'transparent';
+  const fg = selected ? (color ? '#0F1A18' : t.a.onPCont) : t.onSurfaceVar;
+  const border = selected ? 'transparent' : t.outline;
+  return (
+    <button onClick={onClick} style={{
+      height: 32, padding: '0 12px',
+      display: 'inline-flex', alignItems: 'center', gap: 6,
+      borderRadius: 8,
+      border: `1px solid ${border}`,
+      background: bg, color: fg,
+      fontFamily: 'inherit', fontSize: 13, fontWeight: 600,
+      cursor: 'pointer',
+      ...style,
+    }}>
+      {leadingIcon && <Icon name={leadingIcon} size={16} fill={selected} />}
+      {children}
+    </button>
+  );
+}
+
+function Button({ children, variant = 'filled', onClick, leadingIcon, trailingIcon, color, style, full, disabled }) {
+  const t = useTheme();
+  const c = color || t.a.p;
+  const filled = {
+    background: disabled ? t.outlineVar : c,
+    color: disabled ? t.onSurfaceVar : '#fff',
+    border: 'none',
+  };
+  const tonal = {
+    background: disabled ? t.outlineVar : t.a.pCont,
+    color: disabled ? t.onSurfaceVar : t.a.onPCont,
+    border: 'none',
+  };
+  const outlined = {
+    background: 'transparent',
+    color: c,
+    border: `1px solid ${t.outline}`,
+  };
+  const text = {
+    background: 'transparent',
+    color: c,
+    border: 'none',
+    padding: '0 12px',
+  };
+  const s = variant === 'tonal' ? tonal : variant === 'outlined' ? outlined : variant === 'text' ? text : filled;
+  return (
+    <button onClick={disabled ? undefined : onClick} style={{
+      height: 48, padding: '0 24px',
+      borderRadius: 999,
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+      fontFamily: 'inherit', fontSize: 15, fontWeight: 700,
+      cursor: disabled ? 'default' : 'pointer',
+      width: full ? '100%' : 'auto',
+      transition: 'transform .12s ease, filter .12s',
+      ...s,
+      ...style,
+    }}
+    onMouseDown={e => !disabled && (e.currentTarget.style.transform = 'scale(0.98)')}
+    onMouseUp={e => !disabled && (e.currentTarget.style.transform = 'scale(1)')}
+    onMouseLeave={e => !disabled && (e.currentTarget.style.transform = 'scale(1)')}>
+      {leadingIcon && <Icon name={leadingIcon} size={18} fill />}
+      <span>{children}</span>
+      {trailingIcon && <Icon name={trailingIcon} size={18} />}
+    </button>
+  );
+}
+
+function IconButton({ name, onClick, fill, size = 40, iconSize = 22, style, color, tone = 'standard' }) {
+  const t = useTheme();
+  const tones = {
+    standard: { bg: 'transparent', fg: color || t.onSurface },
+    filled:   { bg: t.a.p, fg: '#fff' },
+    tonal:    { bg: t.surfaceContainerHigh, fg: color || t.onSurface },
+    outlined: { bg: 'transparent', fg: color || t.onSurface, border: `1px solid ${t.outline}` },
+  };
+  const s = tones[tone] || tones.standard;
+  return (
+    <button onClick={onClick} style={{
+      width: size, height: size,
+      borderRadius: '50%',
+      border: s.border || 'none',
+      background: s.bg, color: s.fg,
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      cursor: 'pointer',
+      transition: 'background .15s',
+      ...style,
+    }}>
+      <Icon name={name} size={iconSize} fill={fill} color={s.fg} />
+    </button>
+  );
+}
+
+// Severity badge
+function SeverityBadge({ level }) {
+  const t = useTheme();
+  const map = {
+    mild:     { c: t.sevMild,     bg: t.dark ? 'rgba(30,158,148,0.18)' : 'rgba(30,158,148,0.12)' },
+    moderate: { c: t.sevModerate, bg: t.dark ? 'rgba(245,180,65,0.18)' : 'rgba(212,142,26,0.12)' },
+    severe:   { c: t.sevSevere,   bg: t.dark ? 'rgba(255,119,117,0.18)': 'rgba(224,69,69,0.12)' },
+  };
+  const s = map[level] || map.mild;
+  return (
+    <span style={{
+      fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase',
+      padding: '4px 10px', borderRadius: 8,
+      background: s.bg, color: s.c,
+    }}>{level}</span>
+  );
+}
+
+// ─── Form fields ──────────────────────────────────────────────
+function TextField({ label, value, onChange, leadingIcon, trailingIcon, type = 'text', placeholder, multiline, style }) {
+  const t = useTheme();
+  const [focus, setFocus] = React.useState(false);
+  const Tag = multiline ? 'textarea' : 'input';
+  return (
+    <label style={{ display: 'block', ...style }}>
+      {label && (
+        <div style={{
+          fontSize: 13, fontWeight: 700, color: focus ? t.a.p : t.onSurfaceVar,
+          marginBottom: 8, letterSpacing: 0.2,
+        }}>{label}</div>
+      )}
+      <div style={{
+        display: 'flex', alignItems: multiline ? 'flex-start' : 'center', gap: 12,
+        padding: multiline ? '14px 16px' : '0 16px',
+        height: multiline ? 'auto' : 56, minHeight: multiline ? 96 : 56,
+        background: t.surfaceContainerHigh,
+        borderRadius: 16,
+        border: `1.5px solid ${focus ? t.a.p : 'transparent'}`,
+        transition: 'border-color .15s',
+      }}>
+        {leadingIcon && <Icon name={leadingIcon} size={20} color={t.onSurfaceVar} />}
+        <Tag
+          type={type}
+          value={value ?? ''}
+          placeholder={placeholder}
+          onChange={(e) => onChange?.(e.target.value)}
+          onFocus={() => setFocus(true)}
+          onBlur={() => setFocus(false)}
+          rows={multiline ? 3 : undefined}
+          style={{
+            flex: 1, border: 'none', outline: 'none', background: 'transparent',
+            fontFamily: 'inherit', fontSize: 15, color: t.onSurface,
+            resize: 'none', padding: 0,
+          }}
+        />
+        {trailingIcon && <Icon name={trailingIcon} size={20} color={t.onSurfaceVar} />}
+      </div>
+    </label>
+  );
+}
+
+function SegmentedControl({ options, value, onChange, color }) {
+  const t = useTheme();
+  return (
+    <div style={{
+      display: 'flex',
+      background: t.surfaceContainerHigh,
+      borderRadius: 999,
+      padding: 4,
+      gap: 4,
+    }}>
+      {options.map(opt => {
+        const sel = (opt.value ?? opt) === value;
+        const c = color || (opt.color) || t.a.p;
+        return (
+          <button key={opt.value ?? opt} onClick={() => onChange?.(opt.value ?? opt)}
+            style={{
+              flex: 1, height: 40,
+              borderRadius: 999, border: 'none',
+              background: sel ? c : 'transparent',
+              color: sel ? '#fff' : t.onSurfaceVar,
+              fontFamily: 'inherit', fontSize: 14, fontWeight: 700,
+              cursor: 'pointer',
+              transition: 'background .18s, color .18s',
+            }}>
+            {opt.label ?? opt}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// Stepper for numeric input (minutes, breaths)
+function Stepper({ value, onChange, min = 0, max = 99, suffix }) {
+  const t = useTheme();
+  const dec = () => onChange?.(Math.max(min, value - 1));
+  const inc = () => onChange?.(Math.min(max, value + 1));
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      padding: '8px 12px', borderRadius: 999,
+      background: t.surfaceContainerHigh,
+      height: 64,
+    }}>
+      <button onClick={dec} aria-label="decrease" style={{
+        width: 48, height: 48, borderRadius: '50%',
+        border: 'none', background: t.surfaceContainerHighest,
+        color: t.onSurface, cursor: 'pointer',
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        <Icon name="remove" size={20} />
+      </button>
+      <div style={{
+        flex: 1, textAlign: 'center', fontSize: 32, fontWeight: 800,
+        color: t.onSurface, letterSpacing: -0.5, fontVariantNumeric: 'tabular-nums',
+      }}>
+        {String(value).padStart(2, '0')}{suffix && <span style={{
+          fontSize: 14, fontWeight: 600, color: t.onSurfaceVar, marginLeft: 6,
+        }}>{suffix}</span>}
+      </div>
+      <button onClick={inc} aria-label="increase" style={{
+        width: 48, height: 48, borderRadius: '50%',
+        border: 'none', background: t.a.p, color: '#fff', cursor: 'pointer',
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        <Icon name="add" size={20} />
+      </button>
+    </div>
+  );
+}
+
+// ─── Charts (custom SVG) ─────────────────────────────────────
+function WeeklyBars({ data, height = 140 }) {
+  // data: [{day, attacks, inhalers}]
+  const t = useTheme();
+  const maxV = Math.max(4, ...data.map(d => Math.max(d.attacks, d.inhalers)));
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height, padding: '4px 0' }}>
+      {data.map(d => {
+        const aH = (d.attacks / maxV) * (height - 24);
+        const iH = (d.inhalers / maxV) * (height - 24);
+        return (
+          <div key={d.day} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+            <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end', gap: 3, width: '100%', justifyContent: 'center' }}>
+              <div title={`${d.inhalers} doses`} style={{
+                width: 8, borderRadius: 4, background: t.a.p,
+                height: Math.max(iH, d.inhalers ? 6 : 0),
+                opacity: d.inhalers ? 1 : 0,
+                transition: 'height .4s',
+              }} />
+              <div title={`${d.attacks} attacks`} style={{
+                width: 8, borderRadius: 4, background: t.sevSevere,
+                height: Math.max(aH, d.attacks ? 6 : 0),
+                opacity: d.attacks ? 1 : 0,
+                transition: 'height .4s',
+              }} />
+            </div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: t.onSurfaceVar }}>{d.day}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function LineChart({ values, height = 140 }) {
+  const t = useTheme();
+  const w = 320;
+  const max = Math.max(1, ...values);
+  const stepX = w / (values.length - 1);
+  const pts = values.map((v, i) => [i * stepX, height - 24 - (v / max) * (height - 32)]);
+  const path = pts.reduce((acc, [x, y], i) => {
+    if (i === 0) return `M ${x} ${y}`;
+    const [px, py] = pts[i - 1];
+    const cx1 = px + stepX * 0.4, cy1 = py;
+    const cx2 = x - stepX * 0.4, cy2 = y;
+    return `${acc} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x} ${y}`;
+  }, '');
+  const fill = `${path} L ${pts[pts.length-1][0]} ${height} L 0 ${height} Z`;
+  return (
+    <svg viewBox={`0 0 ${w} ${height}`} preserveAspectRatio="none" style={{ width: '100%', height, display: 'block' }}>
+      <defs>
+        <linearGradient id="lcg" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={t.a.p} stopOpacity="0.25" />
+          <stop offset="100%" stopColor={t.a.p} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      {[0.25, 0.5, 0.75].map(g => (
+        <line key={g} x1="0" y1={(height - 24) * g} x2={w} y2={(height - 24) * g}
+              stroke={t.outlineVar} strokeWidth="1" strokeDasharray="3 4" />
+      ))}
+      <path d={fill} fill="url(#lcg)" />
+      <path d={path} fill="none" stroke={t.a.p} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+      {pts.map(([x, y], i) => (
+        <circle key={i} cx={x} cy={y} r="3" fill={t.surface} stroke={t.a.p} strokeWidth="2" />
+      ))}
+    </svg>
+  );
+}
+
+function DonutChart({ segments, total, size = 132, stroke = 14 }) {
+  const t = useTheme();
+  const r = (size - stroke) / 2;
+  const C = 2 * Math.PI * r;
+  let offset = 0;
+  return (
+    <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
+      <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
+        <circle cx={size/2} cy={size/2} r={r} stroke={t.surfaceContainerHighest} strokeWidth={stroke} fill="none" />
+        {segments.map((s, i) => {
+          const len = (s.value / total) * C;
+          const dash = `${len} ${C - len}`;
+          const dashoff = -offset;
+          offset += len;
+          return (
+            <circle key={i} cx={size/2} cy={size/2} r={r}
+              stroke={s.color} strokeWidth={stroke} fill="none"
+              strokeDasharray={dash} strokeDashoffset={dashoff}
+              strokeLinecap="butt"
+            />
+          );
+        })}
+      </svg>
+      <div style={{
+        position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center',
+      }}>
+        <div style={{ fontSize: 26, fontWeight: 800, color: t.onSurface, letterSpacing: -1 }}>{total}</div>
+        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, color: t.onSurfaceVar, textTransform: 'uppercase' }}>Total</div>
+      </div>
+    </div>
+  );
+}
+
+// Bottom sheet — slide up modal
+function BottomSheet({ open, onClose, children, maxHeight = '92%' }) {
+  const t = useTheme();
+  if (!open) return null;
+  return (
+    <div onClick={onClose} style={{
+      position: 'absolute', inset: 0, zIndex: 50,
+      display: 'flex', alignItems: 'flex-end',
+      background: 'rgba(8,15,18,0.45)',
+      animation: 'scrim-in .2s ease-out',
+      backdropFilter: 'blur(2px)',
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        width: '100%', maxHeight, overflow: 'auto',
+        background: t.surface,
+        borderTopLeftRadius: 28, borderTopRightRadius: 28,
+        animation: 'sheet-up .3s cubic-bezier(.2,.8,.2,1)',
+        display: 'flex', flexDirection: 'column',
+      }}
+      className="scroll">
+        <div style={{ padding: '12px 0 4px', display: 'flex', justifyContent: 'center' }}>
+          <div style={{ width: 32, height: 4, borderRadius: 2, background: t.outline }} />
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// Snackbar
+function Snackbar({ message, onClose }) {
+  const t = useTheme();
+  React.useEffect(() => {
+    if (!message) return;
+    const id = setTimeout(onClose, 2400);
+    return () => clearTimeout(id);
+  }, [message]);
+  if (!message) return null;
+  return (
+    <div style={{
+      position: 'absolute', bottom: 100, left: 16, right: 16, zIndex: 70,
+      background: t.dark ? '#E2EAEC' : '#1A2226',
+      color: t.dark ? '#0F1A18' : '#fff',
+      padding: '14px 20px',
+      borderRadius: 12,
+      fontSize: 14, fontWeight: 600,
+      boxShadow: '0 10px 30px rgba(0,0,0,0.25)',
+      animation: 'sheet-up .3s cubic-bezier(.2,.8,.2,1)',
+      display: 'flex', alignItems: 'center', gap: 10,
+    }}>
+      <Icon name="check_circle" fill size={18} />
+      {message}
+    </div>
+  );
+}
+
+// Section header
+function SectionTitle({ children, action }) {
+  const t = useTheme();
+  return (
+    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', margin: '24px 0 12px' }}>
+      <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: t.onSurface, letterSpacing: -0.2 }}>{children}</h3>
+      {action}
+    </div>
+  );
+}
+
+// Cat photo placeholder — uses Unsplash tabby cat
+function CatAvatar({ size = 40, src, ring }) {
+  const t = useTheme();
+  const url = src || 'https://images.unsplash.com/photo-1592194996308-7b43878e84a6?auto=format&fit=crop&w=200&q=80';
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: '50%',
+      overflow: 'hidden', flexShrink: 0,
+      border: ring ? `2px solid ${ring}` : `1px solid ${t.outlineVar}`,
+      background: t.surfaceContainerHigh,
+    }}>
+      <img src={url} alt="cat" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+    </div>
+  );
+}
+
+Object.assign(window, {
+  ACCENTS, buildTheme, ThemeCtx, useTheme,
+  Icon, Card, Chip, Button, IconButton, SeverityBadge,
+  TextField, SegmentedControl, Stepper,
+  WeeklyBars, LineChart, DonutChart,
+  BottomSheet, Snackbar, SectionTitle, CatAvatar,
+});
+
+  </script>
+
+  <!-- screens (top bar, bottom nav, home/history/insights/inhaler/profile) -->
+  <script type="text/babel" data-presets="react" data-type="module">
+// screens.jsx — Pawsthma screens
+
+// ─── Helpers ──────────────────────────────────────────────────
+const fmtTime = (d) => new Date(d).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+const fmtDay = (d) => {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const yest = new Date(today); yest.setDate(yest.getDate() - 1);
+  const dd = new Date(d); dd.setHours(0,0,0,0);
+  if (dd.getTime() === today.getTime()) return 'Today';
+  if (dd.getTime() === yest.getTime()) return 'Yesterday';
+  return new Date(d).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+};
+
+// ─── App bar ──────────────────────────────────────────────────
+function TopBar({ title, subtitle, leading, trailing, large, scrolled }) {
+  const t = useTheme();
+  return (
+    <div style={{
+      padding: large ? '4px 12px 8px' : '4px 12px',
+      background: scrolled ? t.surfaceContainerHigh : t.bg,
+      borderBottom: scrolled ? `1px solid ${t.outlineVar}` : '1px solid transparent',
+      transition: 'background .2s, border-color .2s',
+    }}>
+      <div style={{ height: 56, display: 'flex', alignItems: 'center', gap: 4 }}>
+        {leading || <div style={{ width: 48 }} />}
+        {!large && (
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 18, fontWeight: 800, color: t.onSurface, letterSpacing: -0.2 }}>{title}</div>
+            {subtitle && <div style={{ fontSize: 12, color: t.onSurfaceVar, fontWeight: 500 }}>{subtitle}</div>}
+          </div>
+        )}
+        {large && <div style={{ flex: 1 }} />}
+        <div style={{ display: 'flex', gap: 4 }}>{trailing}</div>
+      </div>
+      {large && (
+        <div style={{ padding: '4px 12px 16px' }}>
+          <div style={{ fontSize: 32, fontWeight: 800, color: t.onSurface, letterSpacing: -0.8 }}>{title}</div>
+          {subtitle && <div style={{ fontSize: 14, color: t.onSurfaceVar, fontWeight: 500, marginTop: 2 }}>{subtitle}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Bottom Nav ───────────────────────────────────────────────
+function BottomNav({ active, onChange, navStyle = 'm3', onFab }) {
+  const t = useTheme();
+  const items = [
+    { id: 'home', label: 'Home', icon: 'home' },
+    { id: 'history', label: 'History', icon: 'history' },
+    { id: 'insights', label: 'Insights', icon: 'monitoring' },
+    { id: 'inhaler', label: 'Inhaler', icon: 'medical_services' },
+    { id: 'profile', label: 'Profile', icon: 'pets' },
+  ];
+
+  if (navStyle === 'fab-prominent') {
+    // 4 items + central FAB
+    const left = items.slice(0, 2);
+    const right = items.slice(3); // skip insights, will land via fab? keep simple — 2 left, 2 right, fab opens add
+    return (
+      <div style={{
+        background: t.surface, borderTop: `1px solid ${t.outlineVar}`,
+        padding: '6px 8px 8px', position: 'relative',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          {left.map(i => <NavItem key={i.id} {...i} active={active === i.id} onClick={() => onChange(i.id)} />)}
+          <button onClick={onFab} style={{
+            width: 56, height: 56, borderRadius: 16,
+            border: 'none', background: t.a.p, color: '#fff',
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: `0 8px 20px ${t.a.p}55`, cursor: 'pointer',
+            transform: 'translateY(-12px)',
+          }}>
+            <Icon name="add" size={26} fill />
+          </button>
+          {right.map(i => <NavItem key={i.id} {...i} active={active === i.id} onClick={() => onChange(i.id)} />)}
+        </div>
+      </div>
+    );
+  }
+
+  // M3 default — pill indicator
+  return (
+    <div style={{
+      background: t.surface,
+      borderTop: `1px solid ${t.outlineVar}`,
+      padding: '8px 4px',
+      display: 'flex', alignItems: 'center', justifyContent: 'space-around',
+    }}>
+      {items.map(i => <NavItem key={i.id} {...i} active={active === i.id} onClick={() => onChange(i.id)} />)}
+    </div>
+  );
+}
+
+function NavItem({ id, label, icon, active, onClick }) {
+  const t = useTheme();
+  return (
+    <button onClick={onClick} style={{
+      flex: 1, padding: '6px 4px',
+      border: 'none', background: 'transparent', cursor: 'pointer',
+      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+      fontFamily: 'inherit',
+    }}>
+      <div style={{
+        width: 64, height: 32, borderRadius: 999,
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        background: active ? t.a.pCont : 'transparent',
+        transition: 'background .2s',
+      }}>
+        <Icon name={icon} size={22} fill={active}
+          color={active ? t.a.onPCont : t.onSurfaceVar} />
+      </div>
+      <span style={{
+        fontSize: 11, fontWeight: 700,
+        color: active ? t.onSurface : t.onSurfaceVar,
+      }}>{label}</span>
+    </button>
+  );
+}
+
+// ─── HOME ─────────────────────────────────────────────────────
+function HomeScreen({ state, openSheet, navigate, openDetail }) {
+  const t = useTheme();
+  const { cat, attacks, inhalers, weeklyData, nextCleanDays, nextCleanPct } = state;
+  const todayAttacks = attacks.filter(a => isToday(a.time));
+  const todayInhalers = inhalers.filter(i => isToday(i.time));
+  return (
+    <div className="scroll screen-anim" style={{ flex: 1, overflow: 'auto', background: t.bg }}>
+      <TopBar
+        leading={
+          <button onClick={() => navigate('profile')} style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: '4px 12px 4px 4px', borderRadius: 999,
+            background: t.surfaceContainer, border: `1px solid ${t.outlineVar}`,
+            cursor: 'pointer', height: 44,
+          }}>
+            <CatAvatar size={36} />
+            <div style={{ textAlign: 'left' }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: t.onSurface, lineHeight: 1.1 }}>{cat.name}</div>
+              <div style={{ fontSize: 9, fontWeight: 700, color: t.onSurfaceVar, letterSpacing: 0.6, textTransform: 'uppercase' }}>Active</div>
+            </div>
+            <Icon name="expand_more" size={18} color={t.onSurfaceVar} />
+          </button>
+        }
+        title=""
+        trailing={[
+          <IconButton key="lang" name="translate" tone="tonal" />,
+          <IconButton key="bell" name="notifications" tone="tonal" />,
+        ]}
+      />
+      <div style={{ padding: '0 16px 24px' }}>
+        {/* Greeting */}
+        <div style={{ padding: '4px 4px 16px' }}>
+          <div style={{ fontSize: 13, color: t.onSurfaceVar, fontWeight: 600 }}>Good morning, Sarah</div>
+          <div style={{ fontSize: 26, fontWeight: 800, color: t.onSurface, letterSpacing: -0.6, marginTop: 2 }}>
+            {todayAttacks.length === 0 ? 'No attacks today' : `${todayAttacks.length} attack${todayAttacks.length>1?'s':''} today`}
+          </div>
+        </div>
+
+        {/* Hero — quick actions */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <button onClick={() => openSheet('attack')} style={{
+            border: 'none', cursor: 'pointer', textAlign: 'left',
+            background: t.dark ? 'rgba(255,119,117,0.14)' : '#FFEEEC',
+            borderRadius: 24, padding: 18, height: 152,
+            display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+            position: 'relative', overflow: 'hidden',
+          }}>
+            <div style={{
+              width: 44, height: 44, borderRadius: 14,
+              background: t.dark ? 'rgba(255,119,117,0.25)' : '#FFD8D2',
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              color: t.sevSevere,
+            }}>
+              <Icon name="emergency_home" size={22} fill />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.6, color: t.sevSevere, textTransform: 'uppercase' }}>Track</div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: t.onSurface, lineHeight: 1.1, marginTop: 2 }}>Record<br/>attack</div>
+            </div>
+          </button>
+          <button onClick={() => openSheet('inhaler')} style={{
+            border: 'none', cursor: 'pointer', textAlign: 'left',
+            background: t.dark ? 'rgba(30,158,148,0.18)' : '#E0F4F0',
+            borderRadius: 24, padding: 18, height: 152,
+            display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+          }}>
+            <div style={{
+              width: 44, height: 44, borderRadius: 14,
+              background: t.dark ? 'rgba(30,158,148,0.32)' : '#C6E6DF',
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              color: t.sevMild,
+            }}>
+              <Icon name="medication_liquid" size={22} fill />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.6, color: t.sevMild, textTransform: 'uppercase' }}>Treat</div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: t.onSurface, lineHeight: 1.1, marginTop: 2 }}>Log<br/>inhaler</div>
+            </div>
+          </button>
+        </div>
+
+        {/* Maintenance card */}
+        <Card style={{ marginTop: 14, padding: 18 }} onClick={() => navigate('inhaler')}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <div style={{ position: 'relative', width: 64, height: 64, flexShrink: 0 }}>
+              <svg width="64" height="64" style={{ transform: 'rotate(-90deg)' }}>
+                <circle cx="32" cy="32" r="26" fill="none" stroke={t.surfaceContainerHighest} strokeWidth="6" />
+                <circle cx="32" cy="32" r="26" fill="none" stroke={t.a.p} strokeWidth="6"
+                  strokeLinecap="round"
+                  strokeDasharray={`${nextCleanPct/100 * 163} 163`} />
+              </svg>
+              <div style={{
+                position: 'absolute', inset: 0, display: 'grid', placeItems: 'center',
+                fontSize: 13, fontWeight: 800, color: t.a.p,
+              }}>{nextCleanPct}%</div>
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 11, fontWeight: 800, color: t.a.p, letterSpacing: 0.6, textTransform: 'uppercase' }}>Maintenance</div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: t.onSurface, marginTop: 2 }}>Inhaler chamber clean</div>
+              <div style={{ fontSize: 13, color: t.onSurfaceVar, fontWeight: 500, marginTop: 2 }}>Due in {nextCleanDays} days · AeroKat</div>
+            </div>
+            <Icon name="chevron_right" size={22} color={t.onSurfaceVar} />
+          </div>
+        </Card>
+
+        {/* Weekly chart */}
+        <SectionTitle action={
+          <button onClick={() => navigate('insights')} style={{
+            border: 'none', background: 'transparent', cursor: 'pointer',
+            color: t.a.p, fontWeight: 700, fontSize: 13, fontFamily: 'inherit',
+          }}>View all</button>
+        }>This week</SectionTitle>
+        <Card padded style={{ padding: 18 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
+            <div>
+              <div style={{ fontSize: 28, fontWeight: 800, color: t.onSurface, letterSpacing: -0.6 }}>
+                {weeklyData.reduce((s,d)=>s+d.attacks,0)}<span style={{ fontSize: 14, fontWeight: 600, color: t.onSurfaceVar, marginLeft: 4 }}>attacks</span>
+              </div>
+              <div style={{ fontSize: 13, color: t.onSurfaceVar, fontWeight: 500 }}>
+                {weeklyData.reduce((s,d)=>s+d.inhalers,0)} doses given
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 12, fontSize: 11, fontWeight: 700, color: t.onSurfaceVar }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ width: 8, height: 8, borderRadius: 4, background: t.a.p }} /> Doses
+              </span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ width: 8, height: 8, borderRadius: 4, background: t.sevSevere }} /> Attacks
+              </span>
+            </div>
+          </div>
+          <WeeklyBars data={weeklyData} height={120} />
+        </Card>
+
+        {/* Today timeline */}
+        <SectionTitle>Today</SectionTitle>
+        <Card padded={false} style={{ padding: 8 }}>
+          {[...todayInhalers.map(x => ({...x, kind: 'inhaler'})), ...todayAttacks.map(x => ({...x, kind: 'attack'}))]
+            .sort((a,b) => new Date(b.time) - new Date(a.time))
+            .slice(0, 4).map((ev, i, arr) => (
+              <div key={ev.id} onClick={() => openDetail && openDetail(ev.kind, ev)} style={{
+                display: 'flex', alignItems: 'center', gap: 14,
+                padding: '12px 12px',
+                borderBottom: i < arr.length - 1 ? `1px solid ${t.outlineVar}` : 'none',
+                cursor: openDetail ? 'pointer' : 'default',
+              }}>
+                <div style={{
+                  width: 40, height: 40, borderRadius: 12,
+                  background: ev.kind === 'attack'
+                    ? (t.dark ? 'rgba(255,119,117,0.15)' : 'rgba(224,69,69,0.10)')
+                    : (t.dark ? 'rgba(30,158,148,0.18)' : 'rgba(30,158,148,0.12)'),
+                  color: ev.kind === 'attack' ? t.sevSevere : t.sevMild,
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <Icon name={ev.kind === 'attack' ? 'emergency_home' : 'medication_liquid'} size={20} fill />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: t.onSurface }}>
+                    {ev.kind === 'attack' ? `${cap(ev.severity)} attack` : `${ev.med} · ${ev.breaths} breaths`}
+                  </div>
+                  <div style={{ fontSize: 12, color: t.onSurfaceVar, fontWeight: 500 }}>
+                    by {ev.who} · {ev.kind === 'attack' ? `${ev.duration} min` : 'dose given'}
+                  </div>
+                </div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: t.onSurfaceVar, fontVariantNumeric: 'tabular-nums' }}>
+                  {fmtTime(ev.time)}
+                </div>
+              </div>
+            ))}
+          {todayInhalers.length + todayAttacks.length === 0 && (
+            <div style={{ padding: 24, textAlign: 'center', color: t.onSurfaceVar, fontSize: 13, fontWeight: 500 }}>
+              No activity yet — tap a card above to log.
+            </div>
+          )}
+        </Card>
+
+        {/* Caregivers */}
+        <SectionTitle action={<IconButton name="person_add" iconSize={18} tone="tonal" />}>
+          Household
+        </SectionTitle>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {state.caregivers.map(p => (
+            <div key={p.name} style={{
+              flex: 1, padding: '14px 10px', textAlign: 'center',
+              background: t.surfaceContainer, borderRadius: 18,
+              border: `1px solid ${t.outlineVar}`,
+            }}>
+              <div style={{
+                width: 40, height: 40, margin: '0 auto 8px',
+                borderRadius: '50%', background: p.color,
+                color: '#fff', fontSize: 18, fontWeight: 800,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>{p.name[0]}</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: t.onSurface }}>{p.name}</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ height: 16 }} />
+      </div>
+    </div>
+  );
+}
+const cap = s => s ? s[0].toUpperCase() + s.slice(1) : '';
+const isToday = (d) => {
+  const a = new Date(d), b = new Date();
+  return a.toDateString() === b.toDateString();
+};
+
+// ─── Attack History ───────────────────────────────────────────
+function HistoryScreen({ state, openSheet, openDetail }) {
+  const t = useTheme();
+  const [filter, setFilter] = React.useState('all');
+  const [scrolled, setScrolled] = React.useState(false);
+  const filtered = state.attacks
+    .filter(a => filter === 'all' || a.severity === filter)
+    .sort((a,b) => new Date(b.time) - new Date(a.time));
+  // group by day
+  const groups = {};
+  filtered.forEach(a => {
+    const k = fmtDay(a.time);
+    (groups[k] ||= []).push(a);
+  });
+
+  return (
+    <div className="scroll screen-anim" style={{ flex: 1, overflow: 'auto', background: t.bg }}
+      onScroll={e => setScrolled(e.target.scrollTop > 8)}>
+      <TopBar
+        title="Attack history"
+        subtitle={`${filtered.length} logged`}
+        large
+        scrolled={scrolled}
+        leading={<IconButton name="arrow_back" />}
+        trailing={[
+          <IconButton key="search" name="search" />,
+          <IconButton key="filter" name="filter_list" />,
+        ]}
+      />
+      <div style={{ padding: '0 16px 24px' }}>
+        <div style={{ display: 'flex', gap: 8, padding: '4px 0 12px', overflowX: 'auto' }}>
+          <Chip selected={filter === 'all'} onClick={() => setFilter('all')}>All</Chip>
+          <Chip selected={filter === 'mild'} onClick={() => setFilter('mild')}
+            color={t.dark ? 'rgba(30,158,148,0.18)' : '#CDEBE7'} leadingIcon="circle">Mild</Chip>
+          <Chip selected={filter === 'moderate'} onClick={() => setFilter('moderate')}
+            color={t.dark ? 'rgba(245,180,65,0.18)' : '#FEEAC9'} leadingIcon="circle">Moderate</Chip>
+          <Chip selected={filter === 'severe'} onClick={() => setFilter('severe')}
+            color={t.dark ? 'rgba(255,119,117,0.18)' : '#FFD8D2'} leadingIcon="circle">Severe</Chip>
+        </div>
+
+        {Object.keys(groups).length === 0 && (
+          <Card style={{ padding: 32, textAlign: 'center' }}>
+            <Icon name="check_circle" size={32} fill color={t.sevMild} />
+            <div style={{ fontSize: 16, fontWeight: 800, color: t.onSurface, marginTop: 8 }}>No attacks</div>
+            <div style={{ fontSize: 13, color: t.onSurfaceVar, marginTop: 4 }}>Nothing matches this filter.</div>
+          </Card>
+        )}
+
+        {Object.entries(groups).map(([day, items]) => (
+          <div key={day} style={{ marginTop: 8 }}>
+            <div style={{
+              display: 'inline-block', padding: '4px 12px',
+              background: t.surfaceContainerHigh,
+              borderRadius: 999, fontSize: 11, fontWeight: 800,
+              color: t.onSurfaceVar, letterSpacing: 0.4, textTransform: 'uppercase',
+              margin: '12px 0 8px',
+            }}>{day}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {items.map(a => <AttackRow key={a.id} attack={a} onClick={() => openDetail && openDetail('attack', a)} />)}
+            </div>
+          </div>
+        ))}
+        <div style={{ height: 16 }} />
+      </div>
+      <FAB onClick={() => openSheet('attack')} icon="add" label="Log attack" />
+    </div>
+  );
+}
+
+function AttackRow({ attack: a, onClick }) {
+  const t = useTheme();
+  const sevColor = a.severity === 'mild' ? t.sevMild : a.severity === 'moderate' ? t.sevModerate : t.sevSevere;
+  return (
+    <div onClick={onClick} style={{
+      background: t.surfaceContainer, borderRadius: 20,
+      border: `1px solid ${t.outlineVar}`,
+      borderLeft: `4px solid ${sevColor}`,
+      padding: 16,
+      cursor: onClick ? 'pointer' : 'default',
+      transition: 'transform .12s ease',
+    }}
+    onMouseDown={e => onClick && (e.currentTarget.style.transform = 'scale(0.99)')}
+    onMouseUp={e => onClick && (e.currentTarget.style.transform = 'scale(1)')}
+    onMouseLeave={e => onClick && (e.currentTarget.style.transform = 'scale(1)')}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 15, fontWeight: 800, color: t.onSurface }}>{a.title || `${cap(a.severity)} attack`}</div>
+          <div style={{ fontSize: 12, color: t.onSurfaceVar, fontWeight: 600, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
+            {fmtTime(a.time)}
+          </div>
+        </div>
+        <SeverityBadge level={a.severity} />
+      </div>
+      <div style={{ display: 'flex', gap: 16, marginTop: 10, fontSize: 12, color: t.onSurfaceVar, fontWeight: 600 }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <Icon name="timer" size={14} /> {a.duration} min
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <Icon name={a.usedInhaler ? 'medication_liquid' : 'do_not_disturb_on'} size={14} />
+          {a.usedInhaler ? 'Inhaler used' : 'No meds'}
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <Icon name="person" size={14} /> {a.who}
+        </span>
+      </div>
+      {a.note && (
+        <div style={{
+          marginTop: 10, padding: 12,
+          background: t.surfaceContainerHigh, borderRadius: 14,
+          fontSize: 13, color: t.onSurface, lineHeight: 1.45,
+        }}>{a.note}</div>
+      )}
+    </div>
+  );
+}
+
+// ─── Insights ─────────────────────────────────────────────────
+function InsightsScreen({ state }) {
+  const t = useTheme();
+  const [range, setRange] = React.useState('W');
+  const [scrolled, setScrolled] = React.useState(false);
+  // streak — days since last attack
+  const lastAttack = state.attacks.length ? Math.max(...state.attacks.map(a => new Date(a.time).getTime())) : 0;
+  const streakDays = lastAttack ? Math.floor((Date.now() - lastAttack) / (1000*60*60*24)) : 30;
+  const totalAttacks = state.attacks.length;
+  const sevCounts = ['mild','moderate','severe'].map(s => ({
+    label: cap(s), value: state.attacks.filter(a => a.severity === s).length,
+    color: s === 'mild' ? t.sevMild : s === 'moderate' ? t.sevModerate : t.sevSevere,
+  }));
+  const series = state.weeklyData.map(d => d.attacks);
+  return (
+    <div className="scroll screen-anim" style={{ flex: 1, overflow: 'auto', background: t.bg }}
+      onScroll={e => setScrolled(e.target.scrollTop > 8)}>
+      <TopBar
+        title="Health insights"
+        subtitle="Last 30 days"
+        large
+        scrolled={scrolled}
+        trailing={[<IconButton key="cal" name="calendar_month" />]}
+      />
+      <div style={{ padding: '0 16px 32px' }}>
+        {/* Stat cards */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+          <StatCard icon="priority_high" tone="severe" value={totalAttacks} label="Attacks" />
+          <StatCard icon="check_circle" tone="mild" value="98%" label="Adherence" />
+          <StatCard icon="trending_down" tone="moderate" value="-15%" label="Trend" />
+        </div>
+
+        {/* Frequency line chart */}
+        <Card style={{ marginTop: 14, padding: 18 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: t.onSurface }}>Attack frequency</div>
+              <div style={{ fontSize: 12, color: t.onSurfaceVar, fontWeight: 500, marginTop: 2 }}>Down from last period</div>
+            </div>
+            <SegmentedControl
+              options={[{value:'W',label:'W'},{value:'M',label:'M'},{value:'Y',label:'Y'}]}
+              value={range} onChange={setRange}
+            />
+          </div>
+          <LineChart values={series} height={140} />
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 11, fontWeight: 600, color: t.onSurfaceVar }}>
+            {state.weeklyData.map(d => <span key={d.day}>{d.day}</span>)}
+          </div>
+        </Card>
+
+        {/* Severity breakdown */}
+        <Card style={{ marginTop: 14, padding: 18 }}>
+          <div style={{ fontSize: 16, fontWeight: 800, color: t.onSurface, marginBottom: 14 }}>Severity breakdown</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+            <DonutChart segments={sevCounts} total={totalAttacks || 1} />
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {sevCounts.map(s => {
+                const pct = totalAttacks ? Math.round(s.value/totalAttacks*100) : 0;
+                return (
+                  <div key={s.label}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: t.onSurface }}>
+                        <span style={{ width: 10, height: 10, borderRadius: 3, background: s.color }} />
+                        {s.label}
+                      </span>
+                      <span style={{ fontSize: 13, fontWeight: 800, color: t.onSurface }}>{pct}%</span>
+                    </div>
+                    <div style={{
+                      marginTop: 4, height: 4, borderRadius: 2,
+                      background: t.surfaceContainerHighest, overflow: 'hidden',
+                    }}>
+                      <div style={{ width: `${pct}%`, height: '100%', background: s.color }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </Card>
+
+        {/* Calendar heatmap */}
+        <SectionTitle>Activity heatmap</SectionTitle>
+        <Card style={{ padding: 18 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 14 }}>
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: t.onSurface }}>Last 12 weeks</div>
+              <div style={{ fontSize: 12, color: t.onSurfaceVar, fontWeight: 500, marginTop: 2 }}>
+                <span style={{ color: t.sevMild, fontWeight: 800 }}>{streakDays}</span> days since last attack
+              </div>
+            </div>
+          </div>
+          <CalendarHeatmap attacks={state.attacks} />
+        </Card>
+
+        {/* Triggers */}
+        <SectionTitle action={
+          <button style={{ border: 'none', background: 'transparent', color: t.a.p, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>View all</button>
+        }>Top triggers</SectionTitle>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {state.triggers.map(tr => (
+            <Card key={tr.name} style={{ padding: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{
+                  width: 40, height: 40, borderRadius: 12,
+                  background: tr.bg, color: tr.fg,
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <Icon name={tr.icon} size={20} fill />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: t.onSurface }}>{tr.name}</div>
+                  <div style={{ marginTop: 6, height: 4, borderRadius: 2, background: t.surfaceContainerHighest, overflow: 'hidden' }}>
+                    <div style={{ width: `${tr.pct}%`, height: '100%', background: tr.fg }} />
+                  </div>
+                </div>
+                <div style={{ fontSize: 12, fontWeight: 800, color: tr.level === 'High' ? t.sevSevere : tr.level === 'Med' ? t.sevModerate : t.sevMild }}>
+                  {tr.level}
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StatCard({ icon, value, label, tone }) {
+  const t = useTheme();
+  const map = {
+    severe:   { bg: t.dark ? 'rgba(255,119,117,0.14)' : '#FFEEEC', fg: t.sevSevere },
+    mild:     { bg: t.dark ? 'rgba(30,158,148,0.14)'  : '#E0F4F0', fg: t.sevMild },
+    moderate: { bg: t.dark ? 'rgba(245,180,65,0.14)'  : '#FFF6E5', fg: t.sevModerate },
+  };
+  const m = map[tone];
+  return (
+    <div style={{
+      background: m.bg, borderRadius: 20, padding: 14, minHeight: 110,
+      display: 'flex', flexDirection: 'column', gap: 6,
+    }}>
+      <Icon name={icon} size={20} fill color={m.fg} />
+      <div style={{ flex: 1 }} />
+      <div style={{ fontSize: 22, fontWeight: 800, color: t.onSurface, letterSpacing: -0.4, lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.6, color: m.fg, textTransform: 'uppercase' }}>{label}</div>
+    </div>
+  );
+}
+
+// ─── Inhaler Hub ──────────────────────────────────────────────
+function InhalerScreen({ state, openSheet }) {
+  const t = useTheme();
+  const [scrolled, setScrolled] = React.useState(false);
+  return (
+    <div className="scroll screen-anim" style={{ flex: 1, overflow: 'auto', background: t.bg }}
+      onScroll={e => setScrolled(e.target.scrollTop > 8)}>
+      <TopBar
+        title="Inhaler hub"
+        subtitle="Device & medication"
+        large
+        scrolled={scrolled}
+        trailing={[<IconButton key="set" name="settings" />]}
+      />
+      <div style={{ padding: '0 16px 24px' }}>
+        {/* Device card */}
+        <Card style={{ padding: 0, overflow: 'hidden' }}>
+          <div style={{
+            background: `linear-gradient(135deg, ${t.a.p} 0%, ${t.a.pDim} 100%)`,
+            padding: 20, color: '#fff',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.6, opacity: 0.85, textTransform: 'uppercase' }}>Active device</div>
+                <div style={{ fontSize: 22, fontWeight: 800, marginTop: 4, letterSpacing: -0.4 }}>AeroKat Chamber</div>
+                <div style={{ fontSize: 12, opacity: 0.85, marginTop: 2 }}>Connected · last sync 2m ago</div>
+              </div>
+              <div style={{
+                padding: '6px 12px', borderRadius: 999,
+                background: 'rgba(255,255,255,0.22)', fontSize: 12, fontWeight: 800,
+              }}>85% left</div>
+            </div>
+
+            {/* Visual */}
+            <div style={{
+              marginTop: 16, height: 130, borderRadius: 18,
+              background: 'rgba(255,255,255,0.15)',
+              backdropFilter: 'blur(2px)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              position: 'relative', overflow: 'hidden',
+            }}>
+              <CatAvatar size={90} ring="rgba(255,255,255,0.4)" />
+              <div style={{
+                position: 'absolute', bottom: 10, right: 14,
+                fontSize: 10, fontWeight: 700, letterSpacing: 0.5, color: 'rgba(255,255,255,0.8)',
+                textTransform: 'uppercase',
+              }}>Whiskers</div>
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', borderTop: `1px solid ${t.outlineVar}` }}>
+            <Stat label="Last use" value="2h ago" />
+            <Stat label="Today" value="1 / 2" border />
+            <Stat label="Streak" value="14d" />
+          </div>
+        </Card>
+
+        {/* Medication */}
+        <SectionTitle>Medications</SectionTitle>
+        <Card padded={false} style={{ padding: 8 }}>
+          {state.medications.map((m, i, arr) => (
+            <div key={m.name} style={{
+              display: 'flex', alignItems: 'center', gap: 14, padding: 12,
+              borderBottom: i < arr.length - 1 ? `1px solid ${t.outlineVar}` : 'none',
+            }}>
+              <div style={{
+                width: 44, height: 44, borderRadius: 12,
+                background: m.color + '22', color: m.color,
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <Icon name={m.kind === 'rescue' ? 'air' : 'medication'} size={22} fill />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: t.onSurface }}>{m.name}</div>
+                <div style={{ fontSize: 12, color: t.onSurfaceVar, fontWeight: 500 }}>{m.dose}</div>
+              </div>
+              <div style={{
+                padding: '4px 10px', borderRadius: 8,
+                background: m.kind === 'rescue' ? (t.dark?'rgba(255,119,117,0.16)':'#FFEEEC') : (t.dark?'rgba(30,158,148,0.18)':'#E0F4F0'),
+                color: m.kind === 'rescue' ? t.sevSevere : t.sevMild,
+                fontSize: 10, fontWeight: 800, letterSpacing: 0.4, textTransform: 'uppercase',
+              }}>{m.kind}</div>
+            </div>
+          ))}
+        </Card>
+
+        {/* Reset timer */}
+        <div style={{ marginTop: 16 }}>
+          <Button full leadingIcon="restart_alt" variant="tonal">Reset cleaning timer</Button>
+        </div>
+
+        {/* History */}
+        <SectionTitle action={
+          <button style={{ border: 'none', background: 'transparent', color: t.a.p, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>View all</button>
+        }>Usage history</SectionTitle>
+        <Card padded={false} style={{ padding: 8 }}>
+          {state.inhalers.slice(0, 4).map((u, i, arr) => (
+            <div key={u.id} style={{
+              display: 'flex', alignItems: 'center', gap: 12, padding: 12,
+              borderBottom: i < arr.length - 1 ? `1px solid ${t.outlineVar}` : 'none',
+            }}>
+              <div style={{
+                width: 36, height: 36, borderRadius: 10,
+                background: u.skipped ? (t.dark?'rgba(245,180,65,0.18)':'#FFF6E5') : (t.dark?'rgba(30,158,148,0.18)':'#E0F4F0'),
+                color: u.skipped ? t.sevModerate : t.sevMild,
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <Icon name={u.skipped ? 'warning' : 'check'} size={18} fill />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: t.onSurface }}>
+                  {u.skipped ? 'Missed dose' : `${u.med} · ${u.breaths} breaths`}
+                </div>
+                <div style={{ fontSize: 11, color: t.onSurfaceVar, fontWeight: 500 }}>
+                  {u.skipped ? `Reason: ${u.reason}` : `By ${u.who}`}
+                </div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: t.onSurfaceVar, fontVariantNumeric: 'tabular-nums' }}>
+                  {fmtTime(u.time)}
+                </div>
+                <div style={{ fontSize: 10, color: u.skipped ? t.sevModerate : t.sevMild, fontWeight: 800, textTransform: 'uppercase' }}>
+                  {u.skipped ? 'Skipped' : 'Logged'}
+                </div>
+              </div>
+            </div>
+          ))}
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function Stat({ label, value, border }) {
+  const t = useTheme();
+  return (
+    <div style={{
+      padding: 14, textAlign: 'center',
+      borderLeft: border ? `1px solid ${t.outlineVar}` : 'none',
+      borderRight: border ? `1px solid ${t.outlineVar}` : 'none',
+    }}>
+      <div style={{ fontSize: 11, fontWeight: 800, color: t.onSurfaceVar, textTransform: 'uppercase', letterSpacing: 0.4 }}>{label}</div>
+      <div style={{ fontSize: 16, fontWeight: 800, color: t.onSurface, marginTop: 4 }}>{value}</div>
+    </div>
+  );
+}
+
+// ─── Profile ──────────────────────────────────────────────────
+function ProfileScreen({ state }) {
+  const t = useTheme();
+  const c = state.cat;
+  const [scrolled, setScrolled] = React.useState(false);
+  return (
+    <div className="scroll screen-anim" style={{ flex: 1, overflow: 'auto', background: t.bg }}
+      onScroll={e => setScrolled(e.target.scrollTop > 8)}>
+      <TopBar
+        title="Profile"
+        leading={<IconButton name="arrow_back" />}
+        trailing={[<IconButton key="set" name="settings" />]}
+        scrolled={scrolled}
+      />
+      <div style={{ padding: '8px 16px 24px' }}>
+        {/* Hero */}
+        <div style={{
+          padding: 20, borderRadius: 28,
+          background: `linear-gradient(180deg, ${t.a.tint} 0%, transparent 100%)`,
+          textAlign: 'center', position: 'relative',
+        }}>
+          <div style={{ position: 'relative', display: 'inline-block' }}>
+            <CatAvatar size={108} ring={t.a.p} />
+            <button style={{
+              position: 'absolute', bottom: 0, right: 0,
+              width: 32, height: 32, borderRadius: '50%',
+              background: t.a.p, color: '#fff',
+              border: `3px solid ${t.bg}`, cursor: 'pointer',
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            }}><Icon name="edit" size={14} fill /></button>
+          </div>
+          <div style={{ fontSize: 26, fontWeight: 800, color: t.onSurface, marginTop: 12, letterSpacing: -0.6 }}>{c.name}</div>
+          <div style={{ fontSize: 13, color: t.onSurfaceVar, fontWeight: 600 }}>{c.breed} · {c.age} years old</div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 14, flexWrap: 'wrap' }}>
+            <Chip leadingIcon="scale" selected color={t.surfaceContainer}>{c.weight} kg</Chip>
+            <Chip leadingIcon="female" selected color={t.surfaceContainer}>{c.sex}</Chip>
+            <Chip leadingIcon="cake" selected color={t.surfaceContainer}>{c.birthday}</Chip>
+          </div>
+        </div>
+
+        {/* Diagnosis */}
+        <Card style={{ marginTop: 16, padding: 16, display: 'flex', gap: 12, alignItems: 'center' }}>
+          <div style={{
+            width: 44, height: 44, borderRadius: 12, background: t.a.tint,
+            color: t.a.p, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+          }}>
+            <Icon name="health_and_safety" size={22} fill />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.4, color: t.a.p, textTransform: 'uppercase' }}>Diagnosis</div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: t.onSurface, marginTop: 2 }}>Feline asthma</div>
+            <div style={{ fontSize: 12, color: t.onSurfaceVar, fontWeight: 500 }}>Diagnosed June 2023 via X-ray</div>
+          </div>
+        </Card>
+
+        {/* Vet */}
+        <SectionTitle>Veterinarian</SectionTitle>
+        <Card style={{ padding: 16, display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div style={{
+            width: 48, height: 48, borderRadius: 16,
+            background: t.surfaceContainerHigh,
+            color: t.a.p,
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <Icon name="medical_information" size={24} fill />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: t.onSurface }}>Dr. Sarah Miller</div>
+            <div style={{ fontSize: 12, color: t.onSurfaceVar, fontWeight: 500 }}>Paws &amp; Claws Clinic</div>
+            <div style={{ fontSize: 11, color: t.onSurfaceVar, fontWeight: 600, marginTop: 2 }}>555-0123 · 123 Pet Lane</div>
+          </div>
+          <IconButton name="call" tone="filled" />
+        </Card>
+
+        {/* Medications */}
+        <SectionTitle>Current medications</SectionTitle>
+        <Card padded={false} style={{ padding: 6 }}>
+          {state.medications.map((m, i, arr) => (
+            <div key={m.name} style={{
+              display: 'flex', alignItems: 'center', gap: 12, padding: 12,
+              borderBottom: i < arr.length - 1 ? `1px solid ${t.outlineVar}` : 'none',
+            }}>
+              <div style={{
+                width: 40, height: 40, borderRadius: 12,
+                background: m.color + '22', color: m.color,
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <Icon name="medication" size={20} fill />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: t.onSurface }}>{m.name}</div>
+                <div style={{ fontSize: 12, color: t.onSurfaceVar, fontWeight: 500 }}>{m.dose}</div>
+              </div>
+              <Icon name="chevron_right" size={18} color={t.onSurfaceVar} />
+            </div>
+          ))}
+        </Card>
+
+        <div style={{ marginTop: 16 }}>
+          <Button full leadingIcon="edit" variant="filled">Edit profile</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Login ────────────────────────────────────────────────────
+function LoginScreen({ onSignIn }) {
+  const t = useTheme();
+  const [email, setEmail] = React.useState('sarah@example.com');
+  const [pw, setPw] = React.useState('••••••••');
+  const [show, setShow] = React.useState(false);
+  return (
+    <div className="scroll screen-anim" style={{ flex: 1, overflow: 'auto', background: t.bg, padding: 24,
+      display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+      <div style={{ textAlign: 'center', marginBottom: 32 }}>
+        <div style={{
+          width: 88, height: 88, margin: '0 auto', borderRadius: 28,
+          background: t.a.tint, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          color: t.a.p,
+        }}>
+          <Icon name="pets" size={48} fill />
+        </div>
+        <div style={{ fontSize: 36, fontWeight: 800, color: t.onSurface, marginTop: 16, letterSpacing: -1 }}>Pawsthma</div>
+        <div style={{ fontSize: 15, color: t.onSurfaceVar, marginTop: 6, fontWeight: 500 }}>Breathe easy, little friend.</div>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <TextField label="Email" leadingIcon="mail" value={email} onChange={setEmail} placeholder="hello@example.com" />
+        <TextField label="Password" leadingIcon="lock" type={show ? 'text' : 'password'} value={pw} onChange={setPw}
+          trailingIcon={show ? 'visibility' : 'visibility_off'} />
+        <div style={{ textAlign: 'right' }}>
+          <button style={{
+            border: 'none', background: 'transparent', color: t.a.p,
+            fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
+          }}>Forgot password?</button>
+        </div>
+        <Button full onClick={onSignIn} trailingIcon="arrow_forward">Sign in</Button>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '8px 0' }}>
+          <div style={{ flex: 1, height: 1, background: t.outlineVar }} />
+          <span style={{ fontSize: 11, fontWeight: 700, color: t.onSurfaceVar, letterSpacing: 1 }}>OR</span>
+          <div style={{ flex: 1, height: 1, background: t.outlineVar }} />
+        </div>
+
+        <Button full variant="outlined" leadingIcon="g_mobiledata">Continue with Google</Button>
+
+        <div style={{ textAlign: 'center', marginTop: 16, fontSize: 13, color: t.onSurfaceVar, fontWeight: 500 }}>
+          Don't have an account?{' '}
+          <button style={{
+            border: 'none', background: 'transparent', color: t.a.p,
+            fontWeight: 800, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
+          }}>Create one</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Sheets ───────────────────────────────────────────────────
+function AttackSheet({ open, onClose, onSave, cat, caregivers }) {
+  const t = useTheme();
+  const [severity, setSeverity] = React.useState('mild');
+  const [duration, setDuration] = React.useState(5);
+  const [usedInhaler, setUsedInhaler] = React.useState(true);
+  const [who, setWho] = React.useState(caregivers[0]?.name || 'Sarah');
+  const [note, setNote] = React.useState('');
+  React.useEffect(() => {
+    if (open) {
+      setSeverity('mild'); setDuration(5); setUsedInhaler(true); setNote('');
+      setWho(caregivers[0]?.name || 'Sarah');
+    }
+  }, [open]);
+  const sevColor = severity === 'mild' ? t.sevMild : severity === 'moderate' ? t.sevModerate : t.sevSevere;
+  return (
+    <BottomSheet open={open} onClose={onClose}>
+      <div style={{ padding: '8px 20px 24px' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: t.onSurface, letterSpacing: -0.4 }}>Record attack</div>
+            <div style={{ fontSize: 13, color: t.onSurfaceVar, fontWeight: 500, marginTop: 2 }}>Logging for {cat.name} · {fmtTime(new Date())}</div>
+          </div>
+          <IconButton name="close" tone="tonal" onClick={onClose} />
+        </div>
+
+        <div style={{ marginTop: 20 }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: t.onSurfaceVar, letterSpacing: 0.3, textTransform: 'uppercase', marginBottom: 10 }}>Severity</div>
+          <SegmentedControl
+            options={[
+              { value: 'mild', label: 'Mild', color: t.sevMild },
+              { value: 'moderate', label: 'Moderate', color: t.sevModerate },
+              { value: 'severe', label: 'Severe', color: t.sevSevere },
+            ]}
+            value={severity} onChange={setSeverity} color={sevColor}
+          />
+        </div>
+
+        <div style={{ marginTop: 18 }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: t.onSurfaceVar, letterSpacing: 0.3, textTransform: 'uppercase', marginBottom: 10 }}>Duration (minutes)</div>
+          <Stepper value={duration} onChange={setDuration} min={1} max={60} suffix="min" />
+        </div>
+
+        <div style={{ marginTop: 18 }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: t.onSurfaceVar, letterSpacing: 0.3, textTransform: 'uppercase', marginBottom: 10 }}>Inhaler used?</div>
+          <SegmentedControl options={[{value:true,label:'Yes'},{value:false,label:'No'}]} value={usedInhaler} onChange={setUsedInhaler} />
+        </div>
+
+        <div style={{ marginTop: 18 }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: t.onSurfaceVar, letterSpacing: 0.3, textTransform: 'uppercase', marginBottom: 10 }}>Logged by</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {caregivers.map(p => (
+              <Chip key={p.name} selected={who === p.name} onClick={() => setWho(p.name)}>{p.name}</Chip>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ marginTop: 18 }}>
+          <TextField label="Notes" multiline placeholder="Triggers, behavior, context…" value={note} onChange={setNote} />
+        </div>
+
+        <div style={{ marginTop: 22 }}>
+          <Button full color={t.sevSevere} leadingIcon="check"
+            onClick={() => onSave({ severity, duration, usedInhaler, who, note })}>
+            Save attack
+          </Button>
+        </div>
+      </div>
+    </BottomSheet>
+  );
+}
+
+function InhalerSheet({ open, onClose, onSave, cat, caregivers, medications }) {
+  const t = useTheme();
+  const [med, setMed] = React.useState(medications[0]?.name);
+  const [breaths, setBreaths] = React.useState(7);
+  const [who, setWho] = React.useState(caregivers[0]?.name || 'Sarah');
+  const [note, setNote] = React.useState('');
+  React.useEffect(() => {
+    if (open) {
+      setMed(medications[0]?.name); setBreaths(7); setNote('');
+      setWho(caregivers[0]?.name || 'Sarah');
+    }
+  }, [open]);
+  return (
+    <BottomSheet open={open} onClose={onClose}>
+      <div style={{ padding: '8px 20px 24px' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: t.onSurface, letterSpacing: -0.4 }}>Log inhaler</div>
+            <div style={{ fontSize: 13, color: t.onSurfaceVar, fontWeight: 500, marginTop: 2 }}>For {cat.name} · {fmtTime(new Date())}</div>
+          </div>
+          <IconButton name="close" tone="tonal" onClick={onClose} />
+        </div>
+
+        <div style={{ marginTop: 20 }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: t.onSurfaceVar, letterSpacing: 0.3, textTransform: 'uppercase', marginBottom: 10 }}>Medication</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {medications.map(m => (
+              <button key={m.name} onClick={() => setMed(m.name)} style={{
+                display: 'flex', alignItems: 'center', gap: 12,
+                padding: 12, borderRadius: 16,
+                border: `1.5px solid ${med === m.name ? t.a.p : t.outlineVar}`,
+                background: med === m.name ? t.a.tint : t.surfaceContainerHigh,
+                cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left',
+              }}>
+                <div style={{
+                  width: 40, height: 40, borderRadius: 10, background: m.color + '22',
+                  color: m.color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <Icon name="medication" size={20} fill />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: t.onSurface }}>{m.name}</div>
+                  <div style={{ fontSize: 12, color: t.onSurfaceVar, fontWeight: 500 }}>{m.dose} · {m.kind}</div>
+                </div>
+                {med === m.name && <Icon name="check_circle" size={20} fill color={t.a.p} />}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ marginTop: 18 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            <div style={{ fontSize: 12, fontWeight: 800, color: t.onSurfaceVar, letterSpacing: 0.3, textTransform: 'uppercase' }}>Breaths taken</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: t.a.p }}>{breaths}</div>
+          </div>
+          <Stepper value={breaths} onChange={setBreaths} min={1} max={20} suffix="breaths" />
+        </div>
+
+        <div style={{ marginTop: 18 }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: t.onSurfaceVar, letterSpacing: 0.3, textTransform: 'uppercase', marginBottom: 10 }}>Administered by</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {caregivers.map(p => (
+              <Chip key={p.name} selected={who === p.name} onClick={() => setWho(p.name)}>{p.name}</Chip>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ marginTop: 18 }}>
+          <TextField label="Notes (optional)" multiline placeholder="Coughing, wheezing, behavior…" value={note} onChange={setNote} />
+        </div>
+
+        <div style={{ marginTop: 22 }}>
+          <Button full leadingIcon="check"
+            onClick={() => onSave({ med, breaths, who, note })}>
+            Save dose
+          </Button>
+        </div>
+      </div>
+    </BottomSheet>
+  );
+}
+
+// ─── Action chooser sheet (when no specific action picked) ───
+function ActionChooser({ open, onClose, onPick }) {
+  const t = useTheme();
+  return (
+    <BottomSheet open={open} onClose={onClose} maxHeight="auto">
+      <div style={{ padding: '8px 20px 28px' }}>
+        <div style={{ fontSize: 20, fontWeight: 800, color: t.onSurface, letterSpacing: -0.3, marginBottom: 4 }}>Quick log</div>
+        <div style={{ fontSize: 13, color: t.onSurfaceVar, fontWeight: 500, marginBottom: 18 }}>What happened?</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <button onClick={() => onPick('attack')} style={{
+            border: 'none', cursor: 'pointer', textAlign: 'left',
+            background: t.dark ? 'rgba(255,119,117,0.14)' : '#FFEEEC',
+            borderRadius: 22, padding: 18, height: 130,
+            display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+            fontFamily: 'inherit',
+          }}>
+            <Icon name="emergency_home" size={26} fill color={t.sevSevere} />
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: t.onSurface }}>Record attack</div>
+              <div style={{ fontSize: 12, color: t.onSurfaceVar, fontWeight: 500 }}>Severity, duration, notes</div>
+            </div>
+          </button>
+          <button onClick={() => onPick('inhaler')} style={{
+            border: 'none', cursor: 'pointer', textAlign: 'left',
+            background: t.dark ? 'rgba(30,158,148,0.18)' : '#E0F4F0',
+            borderRadius: 22, padding: 18, height: 130,
+            display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+            fontFamily: 'inherit',
+          }}>
+            <Icon name="medication_liquid" size={26} fill color={t.sevMild} />
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: t.onSurface }}>Log inhaler</div>
+              <div style={{ fontSize: 12, color: t.onSurfaceVar, fontWeight: 500 }}>Medication, breaths, who</div>
+            </div>
+          </button>
+        </div>
+      </div>
+    </BottomSheet>
+  );
+}
+
+// FAB
+function FAB({ icon, label, onClick }) {
+  const t = useTheme();
+  return (
+    <button onClick={onClick} style={{
+      position: 'absolute', right: 16, bottom: 92,
+      height: 56, padding: label ? '0 24px 0 20px' : 0,
+      width: label ? 'auto' : 56,
+      borderRadius: 16,
+      border: 'none', background: t.a.p, color: '#fff',
+      display: 'inline-flex', alignItems: 'center', gap: 10,
+      fontFamily: 'inherit', fontSize: 14, fontWeight: 800,
+      boxShadow: `0 8px 24px ${t.a.p}55`,
+      cursor: 'pointer',
+      zIndex: 30,
+    }}>
+      <Icon name={icon} size={22} fill /> {label}
+    </button>
+  );
+}
+
+Object.assign(window, {
+  TopBar, BottomNav, NavItem,
+  HomeScreen, HistoryScreen, InsightsScreen, InhalerScreen, ProfileScreen, LoginScreen,
+  AttackSheet, InhalerSheet, ActionChooser, FAB,
+});
+
+  </script>
+
+  <!-- sheets (attack, inhaler, detail, onboarding, calendar heatmap) -->
+  <script type="text/babel" data-presets="react" data-type="module">
+// screens-extra.jsx — Onboarding, Detail/Edit sheets, Calendar Heatmap
+
+// ─── Calendar Heatmap (12 weeks) ──────────────────────────────
+function CalendarHeatmap({ attacks }) {
+  const t = useTheme();
+  // Build 12 weeks × 7 days grid ending today
+  const today = new Date(); today.setHours(0,0,0,0);
+  const days = [];
+  // start at the Sunday of (today - 11 weeks)
+  const start = new Date(today);
+  start.setDate(start.getDate() - (11 * 7 + start.getDay()));
+  for (let w = 0; w < 12; w++) {
+    const col = [];
+    for (let d = 0; d < 7; d++) {
+      const date = new Date(start);
+      date.setDate(start.getDate() + w * 7 + d);
+      const key = date.toDateString();
+      const count = attacks.filter(a => new Date(a.time).toDateString() === key).length;
+      col.push({ date, count, future: date > today });
+    }
+    days.push(col);
+  }
+  const colorFor = (c) => {
+    if (c === 0) return t.surfaceContainerHighest;
+    const intensity = Math.min(1, c / 3);
+    const opacity = 0.25 + intensity * 0.75;
+    return t.a.p + Math.round(opacity * 255).toString(16).padStart(2, '0');
+  };
+  const monthLabels = [];
+  let lastMonth = -1;
+  days.forEach((col, i) => {
+    const m = col[0].date.getMonth();
+    if (m !== lastMonth) {
+      monthLabels.push({ i, label: col[0].date.toLocaleDateString('en', { month: 'short' }) });
+      lastMonth = m;
+    }
+  });
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 4, paddingLeft: 18, marginBottom: 4, fontSize: 10, fontWeight: 700, color: t.onSurfaceVar }}>
+        {days.map((_, i) => {
+          const ml = monthLabels.find(m => m.i === i);
+          return <div key={i} style={{ width: 18, textAlign: 'center' }}>{ml ? ml.label : ''}</div>;
+        })}
+      </div>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 9, fontWeight: 700, color: t.onSurfaceVar, paddingTop: 2 }}>
+          {['M','W','F'].map((d, i) => (
+            <div key={d} style={{ height: 18, lineHeight: '18px', marginTop: i === 0 ? 18 : 18 }}>{d}</div>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 4, flex: 1 }}>
+          {days.map((col, i) => (
+            <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+              {col.map((cell, j) => (
+                <div key={j} title={`${cell.date.toLocaleDateString()}: ${cell.count} attack${cell.count===1?'':'s'}`}
+                  style={{
+                    aspectRatio: '1', borderRadius: 4,
+                    background: cell.future ? 'transparent' : colorFor(cell.count),
+                    border: cell.future ? 'none' : `1px solid ${t.outlineVar}`,
+                  }} />
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, justifyContent: 'flex-end', fontSize: 11, color: t.onSurfaceVar, fontWeight: 600 }}>
+        <span>{tr(window.__lang || 'en', 'less')}</span>
+        {[0, 1, 2, 3].map(c => (
+          <div key={c} style={{
+            width: 12, height: 12, borderRadius: 3,
+            background: colorFor(c),
+            border: `1px solid ${t.outlineVar}`,
+          }} />
+        ))}
+        <span>{tr(window.__lang || 'en', 'more')}</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── Detail / Edit Sheet for Attack ───────────────────────────
+function AttackDetailSheet({ open, onClose, attack, caregivers, onSave, onDelete }) {
+  const t = useTheme();
+  const { lang } = useT();
+  const [editing, setEditing] = React.useState(false);
+  const [confirming, setConfirming] = React.useState(false);
+  const [draft, setDraft] = React.useState(attack);
+  React.useEffect(() => { setDraft(attack); setEditing(false); setConfirming(false); }, [attack, open]);
+  if (!attack || !draft) return null;
+  const sevColor = draft.severity === 'mild' ? t.sevMild : draft.severity === 'moderate' ? t.sevModerate : t.sevSevere;
+
+  return (
+    <BottomSheet open={open} onClose={onClose}>
+      <div style={{ padding: '8px 20px 24px' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: t.onSurface, letterSpacing: -0.4 }}>
+              {tr(lang, 'attackDetails')}
+            </div>
+            <div style={{ fontSize: 13, color: t.onSurfaceVar, fontWeight: 500, marginTop: 2 }}>
+              {new Date(attack.time).toLocaleString(lang === 'pt' ? 'pt-PT' : 'en', { weekday: 'long', hour: 'numeric', minute: '2-digit' })}
+            </div>
+          </div>
+          <IconButton name="close" tone="tonal" onClick={onClose} />
+        </div>
+
+        {!editing && !confirming && (
+          <React.Fragment>
+            <div style={{ marginTop: 18, padding: 16, borderRadius: 20, background: t.surfaceContainerHigh,
+              borderLeft: `4px solid ${sevColor}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <SeverityBadge level={draft.severity} />
+                <div style={{ fontSize: 13, fontWeight: 700, color: t.onSurfaceVar }}>{fmtTime(draft.time)}</div>
+              </div>
+              <div style={{ display: 'flex', gap: 18, fontSize: 13, color: t.onSurfaceVar, fontWeight: 600 }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <Icon name="timer" size={16} /> {draft.duration} {tr(lang, 'min')}
+                </span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <Icon name={draft.usedInhaler ? 'medication_liquid' : 'do_not_disturb_on'} size={16} />
+                  {draft.usedInhaler ? tr(lang, 'inhalerUsed') : tr(lang, 'noMeds')}
+                </span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <Icon name="person" size={16} /> {draft.who}
+                </span>
+              </div>
+              {draft.note && (
+                <div style={{ marginTop: 12, padding: 12, background: t.surface, borderRadius: 14,
+                  fontSize: 13, color: t.onSurface, lineHeight: 1.45 }}>
+                  {draft.note}
+                </div>
+              )}
+            </div>
+
+            <div style={{ marginTop: 16, display: 'flex', gap: 10 }}>
+              <Button full variant="tonal" leadingIcon="edit" onClick={() => setEditing(true)}>{tr(lang, 'edit')}</Button>
+              <Button full variant="outlined" color={t.sevSevere} leadingIcon="delete"
+                onClick={() => setConfirming(true)}>{tr(lang, 'delete')}</Button>
+            </div>
+          </React.Fragment>
+        )}
+
+        {editing && (
+          <React.Fragment>
+            <div style={{ marginTop: 18 }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: t.onSurfaceVar, letterSpacing: 0.3, textTransform: 'uppercase', marginBottom: 10 }}>{tr(lang, 'severity')}</div>
+              <SegmentedControl
+                options={[
+                  { value: 'mild', label: tr(lang, 'mild'), color: t.sevMild },
+                  { value: 'moderate', label: tr(lang, 'moderate'), color: t.sevModerate },
+                  { value: 'severe', label: tr(lang, 'severe'), color: t.sevSevere },
+                ]}
+                value={draft.severity} onChange={(v) => setDraft({ ...draft, severity: v })} color={sevColor}
+              />
+            </div>
+            <div style={{ marginTop: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: t.onSurfaceVar, letterSpacing: 0.3, textTransform: 'uppercase', marginBottom: 10 }}>{tr(lang, 'duration')}</div>
+              <Stepper value={draft.duration} onChange={(v) => setDraft({ ...draft, duration: v })} min={1} max={60} suffix={tr(lang, 'min')} />
+            </div>
+            <div style={{ marginTop: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: t.onSurfaceVar, letterSpacing: 0.3, textTransform: 'uppercase', marginBottom: 10 }}>{tr(lang, 'inhalerUsedQ')}</div>
+              <SegmentedControl options={[{value:true,label:tr(lang,'yes')},{value:false,label:tr(lang,'no')}]}
+                value={draft.usedInhaler} onChange={(v) => setDraft({ ...draft, usedInhaler: v })} />
+            </div>
+            <div style={{ marginTop: 16 }}>
+              <TextField label={tr(lang, 'notes')} multiline placeholder={tr(lang, 'notesP')}
+                value={draft.note || ''} onChange={(v) => setDraft({ ...draft, note: v })} />
+            </div>
+            <div style={{ marginTop: 20, display: 'flex', gap: 10 }}>
+              <Button full variant="outlined" onClick={() => setEditing(false)}>{tr(lang, 'cancel')}</Button>
+              <Button full leadingIcon="check" onClick={() => { onSave(draft); setEditing(false); }}>{tr(lang, 'save')}</Button>
+            </div>
+          </React.Fragment>
+        )}
+
+        {confirming && (
+          <div style={{ marginTop: 24, textAlign: 'center', padding: '16px 0' }}>
+            <div style={{
+              width: 64, height: 64, margin: '0 auto 16px',
+              borderRadius: 20, background: t.dark ? 'rgba(255,119,117,0.16)' : '#FFEEEC',
+              color: t.sevSevere,
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <Icon name="delete" size={28} fill />
+            </div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: t.onSurface }}>{tr(lang, 'deleteAttackConfirm')}</div>
+            <div style={{ marginTop: 24, display: 'flex', gap: 10 }}>
+              <Button full variant="outlined" onClick={() => setConfirming(false)}>{tr(lang, 'cancel')}</Button>
+              <Button full color={t.sevSevere} leadingIcon="delete"
+                onClick={() => { onDelete(attack.id); setConfirming(false); }}>{tr(lang, 'confirm')}</Button>
+            </div>
+          </div>
+        )}
+      </div>
+    </BottomSheet>
+  );
+}
+
+// ─── Detail / Edit Sheet for Inhaler dose ─────────────────────
+function InhalerDetailSheet({ open, onClose, dose, caregivers, medications, onSave, onDelete }) {
+  const t = useTheme();
+  const { lang } = useT();
+  const [editing, setEditing] = React.useState(false);
+  const [confirming, setConfirming] = React.useState(false);
+  const [draft, setDraft] = React.useState(dose);
+  React.useEffect(() => { setDraft(dose); setEditing(false); setConfirming(false); }, [dose, open]);
+  if (!dose || !draft) return null;
+
+  return (
+    <BottomSheet open={open} onClose={onClose}>
+      <div style={{ padding: '8px 20px 24px' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: t.onSurface, letterSpacing: -0.4 }}>
+              {tr(lang, 'inhalerDetails')}
+            </div>
+            <div style={{ fontSize: 13, color: t.onSurfaceVar, fontWeight: 500, marginTop: 2 }}>
+              {new Date(dose.time).toLocaleString(lang === 'pt' ? 'pt-PT' : 'en', { weekday: 'long', hour: 'numeric', minute: '2-digit' })}
+            </div>
+          </div>
+          <IconButton name="close" tone="tonal" onClick={onClose} />
+        </div>
+
+        {!editing && !confirming && (
+          <React.Fragment>
+            <div style={{ marginTop: 18, padding: 16, borderRadius: 20, background: t.surfaceContainerHigh }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                <div style={{
+                  width: 44, height: 44, borderRadius: 12,
+                  background: draft.skipped ? (t.dark?'rgba(245,180,65,0.18)':'#FFF6E5') : (t.dark?'rgba(30,158,148,0.18)':'#E0F4F0'),
+                  color: draft.skipped ? t.sevModerate : t.sevMild,
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <Icon name={draft.skipped ? 'warning' : 'check'} size={22} fill />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: t.onSurface }}>
+                    {draft.skipped ? tr(lang, 'missedDose') : `${draft.med}`}
+                  </div>
+                  <div style={{ fontSize: 13, color: t.onSurfaceVar, fontWeight: 500 }}>
+                    {draft.skipped ? `${tr(lang, 'reason')}: ${draft.reason}` : `${draft.breaths} ${tr(lang, 'breaths')} · ${draft.who}`}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div style={{ marginTop: 16, display: 'flex', gap: 10 }}>
+              <Button full variant="tonal" leadingIcon="edit" onClick={() => setEditing(true)}>{tr(lang, 'edit')}</Button>
+              <Button full variant="outlined" color={t.sevSevere} leadingIcon="delete"
+                onClick={() => setConfirming(true)}>{tr(lang, 'delete')}</Button>
+            </div>
+          </React.Fragment>
+        )}
+
+        {editing && !draft.skipped && (
+          <React.Fragment>
+            <div style={{ marginTop: 18 }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: t.onSurfaceVar, letterSpacing: 0.3, textTransform: 'uppercase', marginBottom: 10 }}>{tr(lang, 'breathsTaken')}</div>
+              <Stepper value={draft.breaths} onChange={(v) => setDraft({ ...draft, breaths: v })} min={1} max={20} suffix={tr(lang, 'breaths')} />
+            </div>
+            <div style={{ marginTop: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: t.onSurfaceVar, letterSpacing: 0.3, textTransform: 'uppercase', marginBottom: 10 }}>{tr(lang, 'administeredBy')}</div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {caregivers.map(p => (
+                  <Chip key={p.name} selected={draft.who === p.name} onClick={() => setDraft({ ...draft, who: p.name })}>{p.name}</Chip>
+                ))}
+              </div>
+            </div>
+            <div style={{ marginTop: 20, display: 'flex', gap: 10 }}>
+              <Button full variant="outlined" onClick={() => setEditing(false)}>{tr(lang, 'cancel')}</Button>
+              <Button full leadingIcon="check" onClick={() => { onSave(draft); setEditing(false); }}>{tr(lang, 'save')}</Button>
+            </div>
+          </React.Fragment>
+        )}
+
+        {confirming && (
+          <div style={{ marginTop: 24, textAlign: 'center', padding: '16px 0' }}>
+            <div style={{
+              width: 64, height: 64, margin: '0 auto 16px',
+              borderRadius: 20, background: t.dark ? 'rgba(255,119,117,0.16)' : '#FFEEEC',
+              color: t.sevSevere,
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <Icon name="delete" size={28} fill />
+            </div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: t.onSurface }}>{tr(lang, 'deleteInhalerConfirm')}</div>
+            <div style={{ marginTop: 24, display: 'flex', gap: 10 }}>
+              <Button full variant="outlined" onClick={() => setConfirming(false)}>{tr(lang, 'cancel')}</Button>
+              <Button full color={t.sevSevere} leadingIcon="delete"
+                onClick={() => { onDelete(dose.id); setConfirming(false); }}>{tr(lang, 'confirm')}</Button>
+            </div>
+          </div>
+        )}
+      </div>
+    </BottomSheet>
+  );
+}
+
+// ─── Onboarding flow ──────────────────────────────────────────
+const PALETTE_EMOJIS = ['👨','👩','🧑','👧','👦','🧓','👴','👵'];
+const PALETTE_COLORS = ['#FF7E67','#1E9E94','#7C5CFF','#A4407C','#D48E1A','#3F6FBF','#34AA48','#E04545'];
+
+function OnboardingFlow({ onDone }) {
+  const t = useTheme();
+  const { lang, setLang } = useT();
+  const [step, setStep] = React.useState(0);
+  const [cat, setCat] = React.useState({ name: '', breed: 'Tabby Shorthair', weight: '', diagnosis: '' });
+  const [profiles, setProfiles] = React.useState([
+    { id: 1, name: '', emoji: '👨', color: PALETTE_COLORS[0] },
+    { id: 2, name: '', emoji: '👩', color: PALETTE_COLORS[1] },
+  ]);
+  const total = 4;
+  const next = () => setStep(s => Math.min(total - 1, s + 1));
+  const back = () => setStep(s => Math.max(0, s - 1));
+  const finish = () => onDone({ cat, profiles: profiles.filter(p => p.name.trim()) });
+  const canNext =
+    step === 0 ? true :
+    step === 1 ? !!cat.name.trim() :
+    step === 2 ? profiles.some(p => p.name.trim()) :
+    true;
+
+  return (
+    <div className="screen-anim" style={{
+      flex: 1, overflow: 'auto', background: t.bg,
+      display: 'flex', flexDirection: 'column',
+    }}>
+      {/* Top bar with back + lang + progress */}
+      <div style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 8, height: 56 }}>
+        {step > 0 ? <IconButton name="arrow_back" onClick={back} /> : <div style={{ width: 40 }} />}
+        <div style={{ flex: 1, height: 6, borderRadius: 3, background: t.surfaceContainerHigh, overflow: 'hidden' }}>
+          <div style={{ width: `${((step+1)/total)*100}%`, height: '100%', background: t.a.p, transition: 'width .3s' }} />
+        </div>
+        <button onClick={() => setLang(lang === 'en' ? 'pt' : 'en')} style={{
+          height: 36, padding: '0 12px', borderRadius: 999,
+          border: `1px solid ${t.outlineVar}`, background: t.surfaceContainer,
+          fontFamily: 'inherit', fontSize: 12, fontWeight: 800,
+          color: t.onSurface, cursor: 'pointer',
+          display: 'inline-flex', alignItems: 'center', gap: 4,
+        }}>
+          <Icon name="translate" size={14} />
+          {lang.toUpperCase()}
+        </button>
+      </div>
+
+      <div style={{ flex: 1, padding: '0 24px 24px', display: 'flex', flexDirection: 'column' }}>
+        {step === 0 && <OnbWelcome lang={lang} onSkip={onDone} />}
+        {step === 1 && <OnbCat lang={lang} cat={cat} setCat={setCat} />}
+        {step === 2 && <OnbProfiles lang={lang} profiles={profiles} setProfiles={setProfiles} catName={cat.name || 'Whiskers'} />}
+        {step === 3 && <OnbDone lang={lang} catName={cat.name || 'Whiskers'} />}
+      </div>
+
+      <div style={{ padding: '16px 24px 24px' }}>
+        <Button full disabled={!canNext}
+          trailingIcon={step === total - 1 ? 'arrow_forward' : 'arrow_forward'}
+          onClick={() => step === total - 1 ? finish() : next()}>
+          {step === 0 ? tr(lang, 'getStarted') :
+            step === total - 1 ? tr(lang, 'enterApp') :
+            tr(lang, 'next')}
+        </Button>
+        {step === 0 && (
+          <button onClick={onDone} style={{
+            width: '100%', marginTop: 12, padding: '12px',
+            border: 'none', background: 'transparent',
+            color: t.onSurfaceVar, fontFamily: 'inherit',
+            fontSize: 14, fontWeight: 700, cursor: 'pointer',
+          }}>{tr(lang, 'iHaveAccount')}</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function OnbWelcome({ lang, onSkip }) {
+  const t = useTheme();
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', textAlign: 'center', gap: 16 }}>
+      <div style={{
+        width: 120, height: 120, borderRadius: 36,
+        background: `linear-gradient(135deg, ${t.a.p} 0%, ${t.a.pDim} 100%)`,
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        color: '#fff',
+        boxShadow: `0 20px 40px ${t.a.p}55`,
+      }}>
+        <Icon name="pets" size={64} fill />
+      </div>
+      <div style={{ fontSize: 38, fontWeight: 800, color: t.onSurface, letterSpacing: -1.2, marginTop: 12 }}>Pawsthma</div>
+      <div style={{ fontSize: 16, color: t.onSurfaceVar, fontWeight: 500, lineHeight: 1.45, maxWidth: 280 }}>
+        {tr(lang, 'welcomeSub')}
+      </div>
+      <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, width: '100%', maxWidth: 280 }}>
+        <FeaturePill icon="emergency_home" label={lang === 'pt' ? 'Crises' : 'Attacks'} />
+        <FeaturePill icon="medication_liquid" label={lang === 'pt' ? 'Doses' : 'Doses'} />
+        <FeaturePill icon="monitoring" label={lang === 'pt' ? 'Análise' : 'Insights'} />
+        <FeaturePill icon="group" label={lang === 'pt' ? 'Em casa' : 'Household'} />
+      </div>
+    </div>
+  );
+}
+function FeaturePill({ icon, label }) {
+  const t = useTheme();
+  return (
+    <div style={{
+      padding: '10px 12px', borderRadius: 14,
+      background: t.surfaceContainer, border: `1px solid ${t.outlineVar}`,
+      display: 'flex', alignItems: 'center', gap: 8,
+      fontSize: 13, fontWeight: 700, color: t.onSurface,
+    }}>
+      <Icon name={icon} size={16} fill color={t.a.p} />
+      {label}
+    </div>
+  );
+}
+
+function OnbCat({ lang, cat, setCat }) {
+  const t = useTheme();
+  return (
+    <div style={{ flex: 1 }}>
+      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.6, color: t.a.p, textTransform: 'uppercase', marginTop: 8 }}>
+        {tr(lang, 'step', { n: 1, total: 3 })}
+      </div>
+      <div style={{ fontSize: 28, fontWeight: 800, color: t.onSurface, letterSpacing: -0.6, marginTop: 6 }}>
+        {tr(lang, 'setupCatTitle')}
+      </div>
+      <div style={{ fontSize: 14, color: t.onSurfaceVar, fontWeight: 500, marginTop: 6, lineHeight: 1.45 }}>
+        {tr(lang, 'setupCatSub')}
+      </div>
+
+      <div style={{ marginTop: 24, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+        <button style={{
+          width: 100, height: 100, borderRadius: '50%',
+          border: `2px dashed ${t.outline}`, background: t.surfaceContainer,
+          color: t.a.p, cursor: 'pointer',
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          flexDirection: 'column', gap: 4,
+        }}>
+          <Icon name="add_a_photo" size={28} fill />
+          <span style={{ fontSize: 10, fontWeight: 800, color: t.onSurfaceVar }}>{tr(lang, 'addPhoto')}</span>
+        </button>
+      </div>
+
+      <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <TextField label={tr(lang, 'catName')} leadingIcon="pets"
+          value={cat.name} onChange={(v) => setCat({ ...cat, name: v })} placeholder="Whiskers" />
+        <TextField label={tr(lang, 'breed')} leadingIcon="category"
+          value={cat.breed} onChange={(v) => setCat({ ...cat, breed: v })} />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <TextField label={tr(lang, 'weightKg')} leadingIcon="scale"
+            value={cat.weight} onChange={(v) => setCat({ ...cat, weight: v })} placeholder="4.5" />
+          <TextField label={tr(lang, 'diagnosisDate')} leadingIcon="event"
+            value={cat.diagnosis} onChange={(v) => setCat({ ...cat, diagnosis: v })} placeholder="Jun 2023" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OnbProfiles({ lang, profiles, setProfiles, catName }) {
+  const t = useTheme();
+  const add = () => {
+    if (profiles.length >= 8) return;
+    setProfiles(ps => [...ps, {
+      id: Date.now(), name: '',
+      emoji: PALETTE_EMOJIS[ps.length % PALETTE_EMOJIS.length],
+      color: PALETTE_COLORS[ps.length % PALETTE_COLORS.length],
+    }]);
+  };
+  const upd = (id, key, value) => setProfiles(ps => ps.map(p => p.id === id ? { ...p, [key]: value } : p));
+  const rem = (id) => setProfiles(ps => ps.filter(p => p.id !== id));
+  return (
+    <div style={{ flex: 1 }}>
+      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.6, color: t.a.p, textTransform: 'uppercase', marginTop: 8 }}>
+        {tr(lang, 'step', { n: 2, total: 3 })}
+      </div>
+      <div style={{ fontSize: 28, fontWeight: 800, color: t.onSurface, letterSpacing: -0.6, marginTop: 6 }}>
+        {tr(lang, 'setupProfilesTitle', { name: catName })}
+      </div>
+      <div style={{ fontSize: 14, color: t.onSurfaceVar, fontWeight: 500, marginTop: 6, lineHeight: 1.45 }}>
+        {tr(lang, 'setupProfilesSub')}
+      </div>
+
+      <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {profiles.map(p => (
+          <div key={p.id} style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: 10, borderRadius: 18, background: t.surfaceContainer,
+            border: `1px solid ${t.outlineVar}`,
+          }}>
+            <button onClick={() => {
+              const idx = PALETTE_EMOJIS.indexOf(p.emoji);
+              const next = PALETTE_EMOJIS[(idx + 1) % PALETTE_EMOJIS.length];
+              upd(p.id, 'emoji', next);
+            }} style={{
+              width: 48, height: 48, borderRadius: '50%',
+              border: `2px solid ${p.color}55`, background: `${p.color}15`,
+              cursor: 'pointer', fontSize: 22,
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            }}>{p.emoji}</button>
+            <input value={p.name} onChange={e => upd(p.id, 'name', e.target.value)}
+              placeholder={tr(lang, 'namePlaceholder')}
+              style={{
+                flex: 1, height: 44, padding: '0 14px',
+                borderRadius: 12, border: `1.5px solid ${p.name ? p.color + '55' : t.outlineVar}`,
+                background: t.surface, color: t.onSurface,
+                fontFamily: 'inherit', fontSize: 15,
+                outline: 'none',
+              }} />
+            {profiles.length > 1 && (
+              <button onClick={() => rem(p.id)} style={{
+                width: 36, height: 36, borderRadius: 10,
+                border: 'none', background: t.dark ? 'rgba(255,119,117,0.14)' : '#FFEEEC',
+                color: t.sevSevere, cursor: 'pointer',
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <Icon name="close" size={16} />
+              </button>
+            )}
+          </div>
+        ))}
+        {profiles.length < 8 && (
+          <button onClick={add} style={{
+            padding: 14, borderRadius: 16,
+            border: `1.5px dashed ${t.outline}`,
+            background: 'transparent', color: t.onSurfaceVar,
+            fontFamily: 'inherit', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+          }}>
+            <Icon name="add" size={16} />
+            {tr(lang, 'addPerson')}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function OnbDone({ lang, catName }) {
+  const t = useTheme();
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', textAlign: 'center', gap: 16 }}>
+      <div style={{
+        width: 120, height: 120, borderRadius: '50%',
+        background: t.a.tint,
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        color: t.a.p,
+        position: 'relative',
+      }}>
+        <Icon name="check_circle" size={80} fill />
+      </div>
+      <div style={{ fontSize: 28, fontWeight: 800, color: t.onSurface, letterSpacing: -0.6, marginTop: 12 }}>
+        {tr(lang, 'youreReady')}
+      </div>
+      <div style={{ fontSize: 15, color: t.onSurfaceVar, fontWeight: 500, lineHeight: 1.45, maxWidth: 280 }}>
+        {tr(lang, 'youreReadySub', { name: catName })}
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, {
+  CalendarHeatmap, AttackDetailSheet, InhalerDetailSheet, OnboardingFlow,
+});
+
+  </script>
+
+  <!-- orchestration (port-app — Firebase bridge, gates, App) -->
+  <script type="text/babel" data-presets="react" data-type="module">
+// port-app.jsx — Pawsthma redesign UI on top of Firebase backend
+// Bridges the repo data shape (households → cats → attacks/inhalerLogs/inhalerInfo + profiles)
+// onto the redesign's expected props (attacks, inhalers, caregivers, cat, etc).
+
+const { useState, useEffect, useMemo, useRef, Fragment } = React;
+
+// ─── Constants & helpers ─────────────────────────────────────
+const PCOLS = ['#FF7E67','#1E9E94','#7C5CFF','#A4407C','#D48E1A','#3F6FBF','#34AA48','#E04545'];
+const EMOJIS = ['🧑','👩','👨','🧒','👵','👴','🧑‍🦰','🧑‍🦱','🐱','🐶'];
+const todayKey = () => new Date().toISOString().slice(0,10);
+const mkId = () => 'p'+Math.random().toString(36).slice(2,7);
+const mkHouseholdId = () => (globalThis.crypto?.randomUUID?.() || `h_${Math.random().toString(36).slice(2,12)}`).replace(/-/g,'').slice(0,16);
+const mkInviteCode = () => Math.random().toString(36).slice(2,6).toUpperCase()+'-'+Math.random().toString(36).slice(2,6).toUpperCase();
+const isPermissionErr = (err) => /permission|denied|auth\/unauthorized|PERMISSION_DENIED/i.test(`${err?.code||''} ${err?.message||''}`);
+
+const LS_DATA = 'pawsthma_v3';
+const LS_DEVICE = 'pawsthma_device_id';
+const LS_HOMEMAP = 'pawsthma_device_households';
+const lsLoad = () => { try { const v = localStorage.getItem(LS_DATA); return v ? JSON.parse(v) : null; } catch { return null; } };
+const lsSave = (d) => { try { localStorage.setItem(LS_DATA, JSON.stringify(d)); } catch {} };
+const getOrCreateDeviceId = () => {
+  try { let id = localStorage.getItem(LS_DEVICE); if(!id){ id = (globalThis.crypto?.randomUUID?.() || 'd_'+Math.random().toString(36).slice(2,12)); localStorage.setItem(LS_DEVICE, id); } return id; } catch { return 'd_anon'; }
+};
+const loadDeviceHomes = () => { try { return JSON.parse(localStorage.getItem(LS_HOMEMAP)||'{}'); } catch { return {}; } };
+const getDeviceHome = (id) => loadDeviceHomes()[id] || null;
+const setDeviceHome = (id, key) => { try { const m = loadDeviceHomes(); m[id]=key; localStorage.setItem(LS_HOMEMAP, JSON.stringify(m)); } catch {} };
+const clearDeviceHome = (id) => { try { const m = loadDeviceHomes(); delete m[id]; localStorage.setItem(LS_HOMEMAP, JSON.stringify(m)); } catch {} };
+
+const DEFAULT_INHALER = { dosage: '110mcg', lastCleaned: todayKey(), cleaningIntervalDays: 14 };
+const DEFAULT_CAT_META = { breed: 'Cat', age: 4, weight: 4.5, sex: 'Female', birthday: 'May 12' };
+
+// ─── Normalization (same shape as repo) ──────────────────────
+const normProfiles = (profiles) => {
+  if (!Array.isArray(profiles)) return null;
+  return profiles.filter(Boolean).map((p, idx) => ({
+    id: typeof p.id === 'string' && p.id ? p.id : mkId(),
+    name: (p.name || '').toString(),
+    emoji: p.emoji || EMOJIS[idx % EMOJIS.length],
+    color: p.color || PCOLS[idx % PCOLS.length],
+  }));
+};
+const normMembers = (members) => {
+  if (!Array.isArray(members)) return [];
+  return [...new Set(members.map(m => typeof m === 'string' ? m : m?.uid).filter(uid => typeof uid === 'string' && uid.trim()))];
+};
+const normMemberKeys = (memberKeys, members = []) => {
+  if (memberKeys && typeof memberKeys === 'object' && !Array.isArray(memberKeys)) {
+    return Object.entries(memberKeys).reduce((acc,[uid,val])=>{ if (uid && val===true) acc[uid]=true; return acc; },{});
+  }
+  return members.reduce((acc,uid)=>{ acc[uid]=true; return acc; },{});
+};
+const mkCat = (idx, name, data = {}) => ({
+  id: data.id || `c${idx+1}`,
+  name: (name || data.name || `Cat ${idx+1}`).toString(),
+  breed: data.breed || DEFAULT_CAT_META.breed,
+  age: typeof data.age === 'number' ? data.age : DEFAULT_CAT_META.age,
+  weight: typeof data.weight === 'number' ? data.weight : DEFAULT_CAT_META.weight,
+  sex: data.sex || DEFAULT_CAT_META.sex,
+  birthday: data.birthday || DEFAULT_CAT_META.birthday,
+  attacks: Array.isArray(data.attacks) ? data.attacks : [],
+  inhalerLogs: Array.isArray(data.inhalerLogs) ? data.inhalerLogs : [],
+  inhalerInfo: { ...DEFAULT_INHALER, ...(data.inhalerInfo || {}) },
+});
+const mkHousehold = (name, data = {}) => ({
+  id: (data.id || mkHouseholdId()).toString(),
+  name: (name || data.name || 'Home').toString(),
+  inviteCode: (data.inviteCode || mkInviteCode()).toString().toUpperCase(),
+  profiles: normProfiles(data.profiles),
+  members: normMembers(data.members),
+  memberKeys: normMemberKeys(data.memberKeys, normMembers(data.members)),
+  cats: Array.isArray(data.cats) ? data.cats.map((c,idx)=>mkCat(idx,c?.name,c)) : [],
+});
+const normalizeData = (raw) => {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const homes = src.households && typeof src.households === 'object' ? src.households : {};
+  return {
+    households: Object.entries(homes).reduce((acc,[k,v])=>{ acc[k] = mkHousehold(v?.name||k, v||{}); return acc; },{}),
+  };
+};
+
+// ─── Data bridges (repo ↔ redesign) ──────────────────────────
+const dateToISO = (date) => {
+  if (!date) return new Date().toISOString();
+  if (date.length > 10) return date; // already an ISO timestamp
+  return `${date}T12:00:00.000Z`;
+};
+const capitalize = (s) => s ? s[0].toUpperCase() + s.slice(1) : s;
+
+function repoToRedesignAttack(a, profilesByUid) {
+  const who = a.addedBy && profilesByUid[a.addedBy] ? profilesByUid[a.addedBy].name : (a.who || '?');
+  return {
+    id: a.id != null ? `a${a.id}` : mkId(),
+    _rawId: a.id,
+    time: a.time || dateToISO(a.date),
+    severity: a.severity || 'mild',
+    duration: typeof a.duration === 'number' ? a.duration : Number(a.duration) || 0,
+    usedInhaler: typeof a.usedInhaler === 'boolean' ? a.usedInhaler : false,
+    who,
+    note: a.notes || a.note || '',
+    title: `${capitalize(a.severity || 'mild')} attack`,
+    _addedBy: a.addedBy || null,
+  };
+}
+function redesignToRepoAttack(a, profilesByName, currentUid) {
+  const time = a.time || new Date().toISOString();
+  return {
+    id: a._rawId || (typeof a.id === 'number' ? a.id : Date.now()),
+    date: time.slice(0, 10),
+    time,
+    severity: a.severity,
+    duration: a.duration,
+    notes: a.note || '',
+    usedInhaler: !!a.usedInhaler,
+    addedBy: profilesByName[a.who]?.id || a._addedBy || currentUid,
+  };
+}
+function repoToRedesignInhaler(l, profilesByUid) {
+  const who = l.addedBy && profilesByUid[l.addedBy] ? profilesByUid[l.addedBy].name : (l.who || '?');
+  return {
+    id: l.id != null ? `i${l.id}` : mkId(),
+    _rawId: l.id,
+    time: l.time || dateToISO(l.date),
+    med: l.med || l.dosage || '',
+    breaths: typeof l.breaths === 'number' ? l.breaths : Number(l.breaths) || 0,
+    who,
+    skipped: !!l.skipped,
+    reason: l.reason || '',
+    note: l.note || '',
+    _addedBy: l.addedBy || null,
+  };
+}
+function redesignToRepoInhaler(l, profilesByName, currentUid) {
+  const time = l.time || new Date().toISOString();
+  return {
+    id: l._rawId || (typeof l.id === 'number' ? l.id : Date.now()),
+    date: time.slice(0, 10),
+    time,
+    breaths: l.breaths || 0,
+    dosage: l.med || '',
+    med: l.med || '',
+    skipped: !!l.skipped,
+    reason: l.reason || '',
+    note: l.note || '',
+    addedBy: profilesByName[l.who]?.id || l._addedBy || currentUid,
+  };
+}
+
+function buildWeeklyData(attacks, inhalers) {
+  const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const rotated = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const out = rotated.map(d => ({ day: d, attacks: 0, inhalers: 0 }));
+  const now = Date.now();
+  const startOfWeek = (() => {
+    const d = new Date();
+    const dow = (d.getDay() + 6) % 7; // Mon=0..Sun=6
+    d.setHours(0,0,0,0);
+    d.setDate(d.getDate() - dow);
+    return d.getTime();
+  })();
+  attacks.forEach(a => {
+    const t = new Date(a.time).getTime();
+    if (t >= startOfWeek && t < startOfWeek + 7*86400000) {
+      const dow = (new Date(t).getDay() + 6) % 7;
+      out[dow].attacks++;
+    }
+  });
+  inhalers.forEach(i => {
+    if (i.skipped) return;
+    const t = new Date(i.time).getTime();
+    if (t >= startOfWeek && t < startOfWeek + 7*86400000) {
+      const dow = (new Date(t).getDay() + 6) % 7;
+      out[dow].inhalers++;
+    }
+  });
+  return out;
+}
+
+// ─── Firebase bridge (waits for window.__pawFB) ──────────────
+function useFirebase() {
+  const [fb, setFb] = useState(window.__pawFB || null);
+  useEffect(() => {
+    if (window.__pawFB) { setFb(window.__pawFB); return; }
+    const onReady = () => setFb(window.__pawFB || { enabled: false });
+    window.addEventListener('paw-fb-ready', onReady);
+    // Fallback: if module never resolves in 1.5s, fall back to demo mode
+    const tid = setTimeout(() => setFb(window.__pawFB || { enabled: false }), 1500);
+    return () => { window.removeEventListener('paw-fb-ready', onReady); clearTimeout(tid); };
+  }, []);
+  return fb;
+}
+
+// ─── Pre-app gates (auth → household → first cat) ────────────
+function AuthGate({ onAuth, error }) {
+  const t = useTheme();
+  const { lang } = useT();
+  const [email, setEmail] = useState('');
+  const [pw, setPw] = useState('');
+  const [signup, setSignup] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [show, setShow] = useState(false);
+  const [localErr, setLocalErr] = useState(null);
+
+  const submit = async () => {
+    if (!email.trim() || !pw) { setLocalErr(lang==='pt'?'Preenche email e password':'Enter email and password'); return; }
+    setBusy(true); setLocalErr(null);
+    const err = await onAuth(email.trim(), pw, signup);
+    setBusy(false);
+    if (err) setLocalErr(err);
+  };
+
+  return (
+    <div className="scroll screen-anim" style={{ flex:1, overflow:'auto', background:t.bg, padding:24, display:'flex', flexDirection:'column', justifyContent:'center' }}>
+      <div style={{ textAlign:'center', marginBottom:32 }}>
+        <div style={{ width:88, height:88, margin:'0 auto', borderRadius:28, background:t.a.tint, display:'inline-flex', alignItems:'center', justifyContent:'center', color:t.a.p }}>
+          <Icon name="pets" size={48} fill />
+        </div>
+        <div style={{ fontSize:36, fontWeight:800, color:t.onSurface, marginTop:16, letterSpacing:-1 }}>Pawsthma</div>
+        <div style={{ fontSize:15, color:t.onSurfaceVar, marginTop:6, fontWeight:500 }}>
+          {lang==='pt' ? 'Respira, pequeno amigo.' : 'Breathe easy, little friend.'}
+        </div>
+      </div>
+
+      <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+        <TextField label={lang==='pt'?'Email':'Email'} leadingIcon="mail" value={email} onChange={setEmail} placeholder="hello@example.com" />
+        <TextField label={lang==='pt'?'Palavra-passe':'Password'} leadingIcon="lock" type={show?'text':'password'} value={pw} onChange={setPw}
+          trailingIcon={show?'visibility':'visibility_off'} />
+        {(localErr || error) && (
+          <div style={{ background:'rgba(255,107,107,0.1)', border:'1px solid rgba(255,107,107,0.3)', color:t.sevSevere, borderRadius:12, padding:'10px 14px', fontSize:13, fontWeight:600 }}>
+            {localErr || error}
+          </div>
+        )}
+        <Button full onClick={submit} disabled={busy} trailingIcon="arrow_forward">
+          {busy ? (lang==='pt'?'A processar…':'Working…') : signup ? (lang==='pt'?'Criar conta':'Create account') : (lang==='pt'?'Entrar':'Sign in')}
+        </Button>
+        <div style={{ textAlign:'center', marginTop:8, fontSize:13, color:t.onSurfaceVar, fontWeight:500 }}>
+          {signup ? (lang==='pt'?'Já tens conta?':'Have an account?') : (lang==='pt'?'Não tens conta?':"Don't have an account?")}{' '}
+          <button onClick={()=>{ setSignup(s=>!s); setLocalErr(null); }} style={{ border:'none', background:'transparent', color:t.a.p, fontWeight:800, fontSize:13, cursor:'pointer', fontFamily:'inherit' }}>
+            {signup ? (lang==='pt'?'Entrar':'Sign in') : (lang==='pt'?'Criar conta':'Create one')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HouseholdGate({ user, householdOptions, onSubmit, onSignOut }) {
+  const t = useTheme();
+  const { lang } = useT();
+  const hasOptions = householdOptions.length > 0;
+  const [mode, setMode] = useState(hasOptions ? 'open' : 'create');
+  const [selected, setSelected] = useState(householdOptions[0]?.id || '');
+  const [name, setName] = useState('');
+  const [code, setCode] = useState('');
+  const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => { if (hasOptions && !selected) setSelected(householdOptions[0].id); }, [householdOptions]);
+
+  const go = async () => {
+    setErr(null); setBusy(true);
+    let res;
+    if (mode === 'open') {
+      if (!selected) { setErr(lang==='pt'?'Escolhe uma casa':'Pick a household'); setBusy(false); return; }
+      res = await onSubmit({ action:'open', householdId: selected });
+    } else if (mode === 'create') {
+      if (!name.trim()) { setErr(lang==='pt'?'Introduz o nome da casa':'Enter a household name'); setBusy(false); return; }
+      res = await onSubmit({ action:'create', householdName: name.trim() });
+    } else {
+      if (!code.trim()) { setErr(lang==='pt'?'Introduz o código':'Enter invite code'); setBusy(false); return; }
+      res = await onSubmit({ action:'join', inviteCode: code.trim().toUpperCase() });
+    }
+    setBusy(false);
+    if (res && !res.ok) {
+      const map = { 'not-found': lang==='pt'?'Casa ou convite não encontrado':'Household or invite not found',
+                    'used': lang==='pt'?'Convite já usado':'Invite already used',
+                    'expired': lang==='pt'?'Convite expirado':'Invite expired',
+                    'permission': lang==='pt'?'Sem permissão':'Permission denied',
+                    'invalid-invite': lang==='pt'?'Código inválido':'Invalid invite code' };
+      setErr(map[res.reason] || (lang==='pt'?'Erro':'Error'));
+    }
+  };
+
+  const tabBtn = (key, label) => (
+    <button onClick={() => { setMode(key); setErr(null); }} style={{
+      flex:1, padding:'10px 8px', borderRadius:12, fontSize:13, fontWeight:700, cursor:'pointer',
+      border:`1.5px solid ${mode===key ? t.a.p : t.outlineVar}`,
+      background: mode===key ? t.a.tint : 'transparent',
+      color: mode===key ? t.a.p : t.onSurfaceVar, fontFamily:'inherit',
+    }}>{label}</button>
+  );
+
+  return (
+    <div className="scroll screen-anim" style={{ flex:1, overflow:'auto', background:t.bg, padding:24, display:'flex', flexDirection:'column', justifyContent:'center' }}>
+      <div style={{ textAlign:'center', marginBottom:24 }}>
+        <div style={{ width:64, height:64, margin:'0 auto', borderRadius:20, background:t.a.tint, display:'inline-flex', alignItems:'center', justifyContent:'center', color:t.a.p }}>
+          <Icon name="home" size={32} fill />
+        </div>
+        <div style={{ fontSize:26, fontWeight:800, color:t.onSurface, marginTop:14, letterSpacing:-0.6 }}>
+          {lang==='pt' ? 'Escolhe uma casa' : 'Choose a household'}
+        </div>
+        <div style={{ fontSize:13, color:t.onSurfaceVar, marginTop:6, fontWeight:500 }}>
+          {user?.email ? (lang==='pt'?`Sessão: ${user.email}`:`Signed in as ${user.email}`) : ''}
+        </div>
+      </div>
+
+      <div style={{ display:'flex', gap:8, marginBottom:18 }}>
+        {hasOptions && tabBtn('open', lang==='pt'?'Abrir':'Open')}
+        {tabBtn('create', lang==='pt'?'Criar':'Create')}
+        {tabBtn('join', lang==='pt'?'Convite':'Join')}
+      </div>
+
+      {mode === 'open' && hasOptions && (
+        <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:18 }}>
+          {householdOptions.map(o => (
+            <button key={o.id} onClick={() => setSelected(o.id)} style={{
+              display:'flex', alignItems:'center', gap:12, padding:'14px 16px', borderRadius:16,
+              border:`1.5px solid ${selected===o.id ? t.a.p : t.outlineVar}`,
+              background: selected===o.id ? t.a.tint : t.surfaceContainer,
+              color: t.onSurface, fontFamily:'inherit', cursor:'pointer', textAlign:'left',
+            }}>
+              <div style={{ width:36, height:36, borderRadius:10, background:t.a.p+'22', color:t.a.p, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                <Icon name="home" fill />
+              </div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:15, fontWeight:700 }}>{o.label}</div>
+                <div style={{ fontSize:11, color:t.onSurfaceVar, fontWeight:500, marginTop:2 }}>{o.id.slice(0,8)}</div>
+              </div>
+              {selected===o.id && <Icon name="check" />}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {mode === 'create' && (
+        <div style={{ marginBottom:18 }}>
+          <TextField label={lang==='pt'?'Nome da casa':'Household name'} leadingIcon="home" value={name} onChange={setName} placeholder={lang==='pt'?'ex: Casa Bigodes':'e.g. Whiskers Home'} />
+        </div>
+      )}
+
+      {mode === 'join' && (
+        <div style={{ marginBottom:18, display:'flex', flexDirection:'column', gap:10 }}>
+          <TextField label={lang==='pt'?'Código de convite':'Invite code'} leadingIcon="key" value={code} onChange={(v)=>setCode(v.toUpperCase())} placeholder="ABCD-EFGH" />
+          <div style={{ fontSize:12, color:t.onSurfaceVar, fontWeight:500 }}>
+            {lang==='pt' ? 'Pede ao dono da casa um código de convite de uso único.' : 'Ask the household owner for a one-time invite code.'}
+          </div>
+        </div>
+      )}
+
+      {err && (
+        <div style={{ background:'rgba(255,107,107,0.1)', border:'1px solid rgba(255,107,107,0.3)', color:t.sevSevere, borderRadius:12, padding:'10px 14px', fontSize:13, fontWeight:600, marginBottom:14 }}>{err}</div>
+      )}
+
+      <Button full onClick={go} disabled={busy} trailingIcon="arrow_forward">
+        {busy ? (lang==='pt'?'A processar…':'Working…') : mode==='open' ? (lang==='pt'?'Abrir casa':'Open household') : mode==='create' ? (lang==='pt'?'Criar casa':'Create household') : (lang==='pt'?'Entrar com convite':'Join with invite')}
+      </Button>
+
+      <button onClick={onSignOut} style={{ marginTop:16, border:'none', background:'transparent', color:t.onSurfaceVar, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'inherit' }}>
+        {lang==='pt' ? 'Sair da conta' : 'Sign out'}
+      </button>
+    </div>
+  );
+}
+
+function FirstCatGate({ onSave, onSignOut }) {
+  const t = useTheme();
+  const { lang } = useT();
+  const [name, setName] = useState('');
+  const [breed, setBreed] = useState('');
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    if (!name.trim()) return;
+    setBusy(true);
+    await onSave({ name: name.trim(), breed: breed.trim() || 'Cat' });
+    setBusy(false);
+  };
+  return (
+    <div className="scroll screen-anim" style={{ flex:1, overflow:'auto', background:t.bg, padding:24, display:'flex', flexDirection:'column', justifyContent:'center' }}>
+      <div style={{ textAlign:'center', marginBottom:24 }}>
+        <div style={{ width:80, height:80, margin:'0 auto', borderRadius:24, background:t.a.tint, display:'inline-flex', alignItems:'center', justifyContent:'center', color:t.a.p, fontSize:42 }}>🐱</div>
+        <div style={{ fontSize:26, fontWeight:800, color:t.onSurface, marginTop:14, letterSpacing:-0.6 }}>
+          {lang==='pt' ? 'Configura o primeiro gato' : 'Set up your first cat'}
+        </div>
+        <div style={{ fontSize:13, color:t.onSurfaceVar, marginTop:6, fontWeight:500 }}>
+          {lang==='pt' ? 'Cada casa começa com pelo menos um gato.' : 'Every household needs at least one cat.'}
+        </div>
+      </div>
+      <div style={{ display:'flex', flexDirection:'column', gap:12, marginBottom:18 }}>
+        <TextField label={lang==='pt'?'Nome do gato':'Cat name'} leadingIcon="pets" value={name} onChange={setName} placeholder={lang==='pt'?'ex: Bigodes':'e.g. Whiskers'} />
+        <TextField label={lang==='pt'?'Raça':'Breed'} leadingIcon="category" value={breed} onChange={setBreed} placeholder={lang==='pt'?'ex: Tabby':'e.g. Tabby Shorthair'} />
+      </div>
+      <Button full onClick={submit} disabled={busy || !name.trim()} trailingIcon="arrow_forward">
+        {busy ? '…' : (lang==='pt'?'Guardar':'Save cat')}
+      </Button>
+      <button onClick={onSignOut} style={{ marginTop:16, border:'none', background:'transparent', color:t.onSurfaceVar, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'inherit' }}>
+        {lang==='pt' ? 'Sair da conta' : 'Sign out'}
+      </button>
+    </div>
+  );
+}
+
+function LoadingGate({ message }) {
+  const t = useTheme();
+  return (
+    <div style={{ flex:1, background:t.bg, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:14, color:t.onSurface }}>
+      <div style={{ width:64, height:64, borderRadius:20, background:t.a.tint, color:t.a.p, display:'flex', alignItems:'center', justifyContent:'center' }}>
+        <Icon name="pets" size={32} fill />
+      </div>
+      <div style={{ fontSize:22, fontWeight:800, letterSpacing:-0.4 }}>Pawsthma</div>
+      <div style={{ fontSize:13, color:t.onSurfaceVar, fontWeight:500 }}>{message || 'Loading…'}</div>
+    </div>
+  );
+}
+
+// ─── Switch household / cat / invite menu ────────────────────
+function HouseholdMenu({ open, onClose, currentHome, currentCat, cats, onSwitchCat, onAddCat, onCreateInvite, onSwitchHome, onSignOut }) {
+  const t = useTheme();
+  const { lang } = useT();
+  const [newCat, setNewCat] = useState('');
+  if (!open) return null;
+  return (
+    <BottomSheet open={open} onClose={onClose}>
+      <div style={{ padding:'8px 20px 24px' }}>
+        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12 }}>
+          <div>
+            <div style={{ fontSize:22, fontWeight:800, color:t.onSurface, letterSpacing:-0.4 }}>
+              {lang==='pt' ? 'Casa & gatos' : 'Household & cats'}
+            </div>
+            <div style={{ fontSize:13, color:t.onSurfaceVar, fontWeight:500, marginTop:2 }}>
+              {currentHome?.name} · {cats.length} {cats.length===1 ? (lang==='pt'?'gato':'cat') : (lang==='pt'?'gatos':'cats')}
+            </div>
+          </div>
+          <IconButton name="close" tone="tonal" onClick={onClose} />
+        </div>
+
+        <div style={{ marginTop:18 }}>
+          <div style={{ fontSize:12, fontWeight:800, color:t.onSurfaceVar, letterSpacing:0.3, textTransform:'uppercase', marginBottom:10 }}>
+            {lang==='pt' ? 'Trocar gato' : 'Switch cat'}
+          </div>
+          <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+            {cats.map(c => (
+              <button key={c.id} onClick={() => { onSwitchCat(c.id); onClose(); }} style={{
+                display:'flex', alignItems:'center', gap:12, padding:'12px 14px', borderRadius:14,
+                border:`1.5px solid ${currentCat?.id===c.id ? t.a.p : t.outlineVar}`,
+                background: currentCat?.id===c.id ? t.a.tint : t.surfaceContainer,
+                color: t.onSurface, fontFamily:'inherit', cursor:'pointer', textAlign:'left',
+              }}>
+                <div style={{ fontSize:24 }}>🐱</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:15, fontWeight:700 }}>{c.name}</div>
+                  <div style={{ fontSize:11, color:t.onSurfaceVar, fontWeight:500 }}>{(c.attacks||[]).length} {lang==='pt'?'crises':'attacks'}</div>
+                </div>
+                {currentCat?.id===c.id && <Icon name="check" />}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ marginTop:18 }}>
+          <div style={{ fontSize:12, fontWeight:800, color:t.onSurfaceVar, letterSpacing:0.3, textTransform:'uppercase', marginBottom:10 }}>
+            {lang==='pt' ? 'Adicionar gato' : 'Add cat'}
+          </div>
+          <div style={{ display:'flex', gap:8 }}>
+            <div style={{ flex:1 }}>
+              <TextField label={lang==='pt'?'Nome':'Name'} leadingIcon="pets" value={newCat} onChange={setNewCat} placeholder={lang==='pt'?'ex: Tigre':'e.g. Tigger'} />
+            </div>
+            <div style={{ alignSelf:'flex-end' }}>
+              <Button onClick={() => { if (newCat.trim()) { onAddCat(newCat.trim()); setNewCat(''); } }} disabled={!newCat.trim()}>
+                {lang==='pt'?'Adicionar':'Add'}
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ marginTop:24, display:'flex', flexDirection:'column', gap:10 }}>
+          <Button full variant="outlined" leadingIcon="link" onClick={onCreateInvite}>
+            {lang==='pt' ? 'Criar código de convite' : 'Create invite code'}
+          </Button>
+          <Button full variant="outlined" leadingIcon="swap_horiz" onClick={() => { onSwitchHome(); onClose(); }}>
+            {lang==='pt' ? 'Trocar de casa' : 'Switch household'}
+          </Button>
+          <Button full variant="outlined" leadingIcon="logout" onClick={() => { onSignOut(); onClose(); }}>
+            {lang==='pt' ? 'Terminar sessão' : 'Sign out'}
+          </Button>
+        </div>
+      </div>
+    </BottomSheet>
+  );
+}
+
+// ─── Main App ────────────────────────────────────────────────
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "accent": "coral",
+  "dark": false,
+  "density": "cozy",
+  "navStyle": "m3",
+  "lang": "en"
+}/*EDITMODE-END*/;
+
+function App() {
+  const fb = useFirebase();
+  const fbReady = !!fb;
+  const fbOn = !!(fb && fb.enabled);
+
+  const [tw, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const theme = useMemo(() => buildTheme({ accent: tw.accent, dark: tw.dark, density: tw.density }), [tw.accent, tw.dark, tw.density]);
+
+  const [lang, setLang] = useState(tw.lang || 'en');
+  useEffect(() => { setLang(tw.lang || 'en'); }, [tw.lang]);
+  const setLangAll = (v) => { setLang(v); setTweak('lang', v); window.__lang = v; };
+
+  // Auth + household state
+  const [user, setUser] = useState(null);
+  const [authReady, setAuthReady] = useState(!fbOn);
+  const [data, setData] = useState(null);
+  const [activeHome, setActiveHome] = useState(null);
+  const [authed, setAuthed] = useState(false);
+  const [userHomes, setUserHomes] = useState([]);
+  const [homeNames, setHomeNames] = useState({});
+  const [catId, setCatId] = useState(null);
+  const [authError, setAuthError] = useState(null);
+  const dataRef = useRef(null);
+  const deviceId = useRef(getOrCreateDeviceId()).current;
+
+  // UI state (redesign)
+  const [tab, setTab] = useState('home');
+  const [sheet, setSheet] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const [snack, setSnack] = useState(null);
+  const [showHHMenu, setShowHHMenu] = useState(false);
+
+  // ─── Auth observer ─────────────────────────────────────────
+  useEffect(() => {
+    if (!fbReady) return;
+    if (!fbOn) { setAuthReady(true); return; }
+    const unsub = fb.fbAuthObserve(u => {
+      setUser(u || null);
+      setAuthReady(true);
+      if (!u) { setAuthed(false); setCatId(null); setData(null); dataRef.current = null; }
+    });
+    return () => unsub && unsub();
+  }, [fbReady]);
+
+  // ─── Load user meta + active home selection ────────────────
+  useEffect(() => {
+    if (fbOn && !authReady) return;
+    (async () => {
+      if (fbOn && user) {
+        try {
+          const meta = await fb.fbLoadUserMeta(user.uid) || {};
+          const linkedHomes = meta.households && typeof meta.households === 'object' ? Object.keys(meta.households) : [];
+          setUserHomes(linkedHomes);
+          if (linkedHomes.length) {
+            Promise.all(linkedHomes.map(async (id) => {
+              try { const h = await fb.fbLoad(id); return [id, (h?.name || id).toString()]; }
+              catch { return [id, id]; }
+            })).then(entries => setHomeNames(Object.fromEntries(entries)));
+          } else { setHomeNames({}); }
+          const remembered = getDeviceHome(deviceId);
+          const initialHome = linkedHomes.includes(remembered) ? remembered : (linkedHomes[0] || null);
+          setActiveHome(initialHome);
+          setAuthed(!!initialHome);
+          if (initialHome) setDeviceHome(deviceId, initialHome);
+          if (!initialHome) {
+            const empty = { households: {} };
+            setData(empty); dataRef.current = empty;
+          }
+        } catch (e) { console.error(e); }
+      } else if (!fbOn) {
+        const saved = normalizeData(lsLoad() || { households: {} });
+        setData(saved); dataRef.current = saved;
+        // Auto-bootstrap a demo household if none exists
+        const homes = Object.keys(saved.households || {});
+        if (homes.length === 0) {
+          const id = mkHouseholdId();
+          const home = mkHousehold('Demo Home', { name: 'Demo Home' });
+          const next = { households: { [id]: home } };
+          setData(normalizeData(next)); dataRef.current = normalizeData(next);
+          lsSave(dataRef.current);
+          setActiveHome(id); setDeviceHome(deviceId, id); setAuthed(true);
+          setUser({ uid: 'local-user', email: 'demo@local', displayName: 'Demo' });
+        } else {
+          const first = homes[0];
+          setActiveHome(first); setAuthed(true);
+          setUser({ uid: 'local-user', email: 'demo@local', displayName: 'Demo' });
+        }
+      }
+    })();
+  }, [user, authReady, fbOn]);
+
+  // ─── Subscribe to active household ─────────────────────────
+  useEffect(() => {
+    if (!fbOn || !activeHome) return;
+    let unsub = null;
+    (async () => {
+      try {
+        let remoteHome = await fb.fbLoad(activeHome);
+        if (!remoteHome) {
+          const selfProfile = { id: user?.uid || mkId(), name: (user?.displayName || user?.email?.split('@')[0] || 'User'), emoji: EMOJIS[0], color: PCOLS[0] };
+          remoteHome = { ...mkHousehold(activeHome, { name: activeHome, cats: [], profiles: null }), profiles: [selfProfile], memberKeys: { ...(user?.uid ? { [user.uid]: true } : {}) } };
+          await fb.fbSave(activeHome, remoteHome);
+        }
+        const normalized = normalizeData({ households: { [activeHome]: remoteHome } });
+        setData(normalized); dataRef.current = normalized;
+        unsub = fb.fbSubscribe(activeHome, inc => {
+          const n = normalizeData({ households: { [activeHome]: inc } });
+          setData(n); dataRef.current = n;
+        });
+      } catch (e) { console.error(e); }
+    })();
+    return () => { if (unsub) unsub(); };
+  }, [activeHome, fbOn]);
+
+  // ─── Persist updates ───────────────────────────────────────
+  const homes = data?.households || {};
+  const homeKeys = Object.keys(homes);
+  const homeKey = activeHome && homes[activeHome] ? activeHome : (homeKeys[0] || null);
+  const currentHome = homeKey ? homes[homeKey] : null;
+
+  const doSave = async (updater) => {
+    const next = updater(dataRef.current || { households: {} });
+    setData(next); dataRef.current = next;
+    if (fbOn && user && homeKey) {
+      const ok = await fb.fbSave(homeKey, next?.households?.[homeKey] || null).catch(() => false);
+      if (!ok) console.warn('save failed');
+    } else { lsSave(next); }
+  };
+
+  // ─── Auth actions ──────────────────────────────────────────
+  const handleAuth = async (email, password, signup) => {
+    if (!fbOn) return null;
+    try {
+      if (signup) await fb.fbSignUp(email, password);
+      else await fb.fbSignIn(email, password);
+      return null;
+    } catch (err) {
+      const msg = `${err?.code||''} ${err?.message||''}`;
+      if (/CONFIGURATION_NOT_FOUND/i.test(msg)) return lang==='pt'?'Configuração em falta':'Auth not configured';
+      if (/auth\/(invalid-credential|wrong-password|user-not-found)/i.test(msg)) return lang==='pt'?'Email ou password inválidos':'Invalid email or password';
+      if (/auth\/email-already-in-use/i.test(msg)) return lang==='pt'?'Email já registado':'Email already in use';
+      if (/auth\/weak-password/i.test(msg)) return lang==='pt'?'Password fraca (mín. 6 chars)':'Weak password (min 6 chars)';
+      return lang==='pt'?'Erro de autenticação':'Authentication error';
+    }
+  };
+  const signOut = async () => {
+    if (fbOn && fb.fbSignOut) await fb.fbSignOut().catch(()=>null);
+    clearDeviceHome(deviceId);
+    setAuthed(false); setActiveHome(null); setCatId(null);
+    setData(null); dataRef.current = null;
+    if (!fbOn) setUser(null);
+  };
+
+  // ─── Household actions ─────────────────────────────────────
+  const submitHousehold = async (payload) => {
+    const profile = { id: user?.uid || mkId(), name: (user?.displayName || user?.email?.split('@')[0] || 'User'), emoji: EMOJIS[0], color: PCOLS[0] };
+    const memberUid = user?.uid || profile.id;
+    const linkUserHome = async (id) => {
+      if (fbOn && fb.fbSaveUserMeta && user?.uid) {
+        const next = Array.from(new Set([...(userHomes||[]), id]));
+        const map = next.reduce((acc,h)=>{ acc[h]=true; return acc; },{});
+        await fb.fbSaveUserMeta(user.uid, { households: map });
+        setUserHomes(next);
+        setHomeNames(prev => ({ ...prev, [id]: prev[id] || id }));
+      } else {
+        setUserHomes(Array.from(new Set([...(userHomes||[]), id])));
+      }
+    };
+    const attachMember = (home) => {
+      const profiles = Array.isArray(home.profiles) ? home.profiles : [];
+      const members = Array.isArray(home.members) ? home.members : [];
+      const memberKeys = home.memberKeys || {};
+      return {
+        ...home,
+        profiles: profiles.some(p=>p.id===profile.id) ? profiles : [...profiles, profile],
+        members: members.includes(memberUid) ? members : [...members, memberUid],
+        memberKeys: { ...memberKeys, [memberUid]: true },
+      };
+    };
+
+    try {
+      if (payload.action === 'open') {
+        const key = payload.householdId;
+        if (fbOn) {
+          const probe = await fb.fbLoad(key);
+          if (!probe) return { ok:false, reason:'not-found' };
+          setData(normalizeData({ households:{ [key]: probe } }));
+          dataRef.current = normalizeData({ households:{ [key]: probe } });
+        }
+        setActiveHome(key); setDeviceHome(deviceId, key); setAuthed(true); setCatId(null);
+        return { ok:true };
+      }
+
+      if (payload.action === 'create') {
+        const id = mkHouseholdId();
+        const base = attachMember(mkHousehold(payload.householdName, { name: payload.householdName, profiles: null, members: [memberUid] }));
+        if (fbOn) {
+          await linkUserHome(id);
+          await fb.fbSave(id, base);
+        } else {
+          await doSave(d => ({ ...d, households: { ...(d?.households||{}), [id]: base } }));
+          await linkUserHome(id);
+        }
+        setData(normalizeData({ households: { [id]: base } }));
+        dataRef.current = normalizeData({ households: { [id]: base } });
+        setActiveHome(id); setDeviceHome(deviceId, id); setAuthed(true); setCatId(null);
+        return { ok:true };
+      }
+
+      if (payload.action === 'join') {
+        const code = (payload.inviteCode||'').toUpperCase();
+        if (!code) return { ok:false, reason:'invalid-invite' };
+        let targetId = null;
+        if (fbOn && user?.uid) {
+          const red = await fb.fbRedeemInvite({ code, uid: user.uid });
+          if (!red.ok) return red;
+          targetId = red.householdId;
+        } else {
+          const homesLocal = dataRef.current?.households || {};
+          targetId = Object.keys(homesLocal).find(h => homesLocal[h]?.inviteCode === code) || null;
+          if (!targetId) return { ok:false, reason:'not-found' };
+        }
+        if (fbOn) await linkUserHome(targetId);
+        let remoteHome = fbOn ? await fb.fbLoad(targetId) : (dataRef.current?.households?.[targetId] || null);
+        if (!remoteHome) return { ok:false, reason:'not-found' };
+        const home = normalizeData({ households:{ [targetId]: remoteHome } }).households[targetId];
+        const updated = attachMember(home);
+        if (fbOn) await fb.fbSave(targetId, updated);
+        else { await doSave(d => ({ ...d, households: { ...d.households, [targetId]: updated } })); await linkUserHome(targetId); }
+        setData(normalizeData({ households: { [targetId]: updated } }));
+        dataRef.current = normalizeData({ households: { [targetId]: updated } });
+        setActiveHome(targetId); setDeviceHome(deviceId, targetId); setAuthed(true); setCatId(null);
+        return { ok:true };
+      }
+
+      return { ok:false, reason:'unknown' };
+    } catch (e) {
+      console.error(e);
+      return { ok:false, reason: isPermissionErr(e) ? 'permission' : 'unknown' };
+    }
+  };
+
+  const createInvite = async () => {
+    if (!homeKey) return;
+    const code = mkInviteCode();
+    const expiresAt = Date.now() + 7*24*60*60*1000;
+    if (fbOn && user?.uid) {
+      try { await fb.fbCreateInvite({ code, householdId: homeKey, createdBy: user.uid, createdAt: Date.now(), expiresAt }); }
+      catch (e) { console.error(e); setSnack(lang==='pt'?'Falha ao criar convite':'Could not create invite'); return; }
+    } else {
+      await doSave(d => ({ ...d, households: { ...d.households, [homeKey]: { ...d.households[homeKey], inviteCode: code } } }));
+    }
+    try { await navigator.clipboard.writeText(code); } catch {}
+    setSnack(`${lang==='pt'?'Convite copiado':'Invite copied'}: ${code}`);
+  };
+
+  // ─── Auto-link the signed-in user to the household profiles ─
+  useEffect(() => {
+    if (!homeKey || !user?.uid || !currentHome) return;
+    const existing = Array.isArray(currentHome.profiles) ? currentHome.profiles : [];
+    const existingMembers = Array.isArray(currentHome.members) ? currentHome.members : [];
+    const existingMemberKeys = currentHome.memberKeys || {};
+    if (existing.some(p=>p.id===user.uid) && existingMembers.includes(user.uid) && existingMemberKeys[user.uid]===true) return;
+    doSave(d => {
+      const home = d.households?.[homeKey]; if (!home) return d;
+      const latest = Array.isArray(home.profiles) ? home.profiles : [];
+      const lm = Array.isArray(home.members) ? home.members : [];
+      const lk = home.memberKeys || {};
+      if (latest.some(p=>p.id===user.uid) && lm.includes(user.uid) && lk[user.uid]===true) return d;
+      const nextProfile = { id: user.uid, name: (user.displayName || user.email?.split('@')[0] || 'User'), emoji: EMOJIS[0], color: PCOLS[latest.length % PCOLS.length] };
+      return { ...d, households: { ...d.households, [homeKey]: {
+        ...home,
+        profiles: latest.some(p=>p.id===user.uid) ? latest : [...latest, nextProfile],
+        members: lm.includes(user.uid) ? lm : [...lm, user.uid],
+        memberKeys: { ...lk, [user.uid]: true },
+      } } };
+    });
+  }, [homeKey, user?.uid, currentHome]);
+
+  // ─── Pick active cat ───────────────────────────────────────
+  const cats = currentHome?.cats || [];
+  useEffect(() => {
+    if (!currentHome) return;
+    if (!catId || !cats.some(c => c.id === catId)) {
+      const first = cats[0]?.id || null;
+      if (first !== catId) setCatId(first);
+    }
+  }, [currentHome, catId]);
+  const currentCat = cats.find(c => c.id === catId) || null;
+
+  // ─── Mutations on the current cat ──────────────────────────
+  const updateCat = (mut) => doSave(d => ({ ...d, households: { ...d.households, [homeKey]: { ...d.households[homeKey], cats: d.households[homeKey].cats.map(c => c.id === catId ? mut(c) : c) } } }));
+  const profilesArr = currentHome?.profiles || [];
+  const profilesByUid = useMemo(() => Object.fromEntries(profilesArr.map(p => [p.id, p])), [profilesArr]);
+  const profilesByName = useMemo(() => Object.fromEntries(profilesArr.map(p => [p.name, p])), [profilesArr]);
+  const currentUid = user?.uid || 'local-user';
+
+  const saveAttack = (data) => {
+    if (!currentCat) return;
+    const repoEntry = redesignToRepoAttack({ ...data, time: new Date().toISOString(), id: Date.now() }, profilesByName, currentUid);
+    updateCat(c => ({ ...c, attacks: [...(c.attacks||[]), repoEntry] }));
+    setSheet(null);
+    setSnack(lang==='pt'?'Crise registada':'Attack logged');
+  };
+  const saveInhaler = (data) => {
+    if (!currentCat) return;
+    const repoEntry = redesignToRepoInhaler({ ...data, time: new Date().toISOString(), id: Date.now() }, profilesByName, currentUid);
+    updateCat(c => ({ ...c, inhalerLogs: [...(c.inhalerLogs||[]), repoEntry] }));
+    setSheet(null);
+    setSnack(lang==='pt'?'Dose registada':'Dose logged');
+  };
+  const updateAttack = (data) => {
+    if (!currentCat) return;
+    const rid = data._rawId;
+    const updated = redesignToRepoAttack(data, profilesByName, currentUid);
+    updateCat(c => ({ ...c, attacks: (c.attacks||[]).map(a => a.id === rid ? { ...a, ...updated } : a) }));
+    setDetail(null);
+    setSnack(lang==='pt'?'Crise atualizada':'Attack updated');
+  };
+  const deleteAttack = (id) => {
+    if (!currentCat) return;
+    const ridMatch = (a) => `a${a.id}` === id;
+    updateCat(c => ({ ...c, attacks: (c.attacks||[]).filter(a => !ridMatch(a)) }));
+    setDetail(null);
+    setSnack(lang==='pt'?'Crise apagada':'Attack deleted');
+  };
+  const updateInhaler = (data) => {
+    if (!currentCat) return;
+    const rid = data._rawId;
+    const updated = redesignToRepoInhaler(data, profilesByName, currentUid);
+    updateCat(c => ({ ...c, inhalerLogs: (c.inhalerLogs||[]).map(l => l.id === rid ? { ...l, ...updated } : l) }));
+    setDetail(null);
+    setSnack(lang==='pt'?'Dose atualizada':'Dose updated');
+  };
+  const deleteInhaler = (id) => {
+    if (!currentCat) return;
+    const ridMatch = (l) => `i${l.id}` === id;
+    updateCat(c => ({ ...c, inhalerLogs: (c.inhalerLogs||[]).filter(l => !ridMatch(l)) }));
+    setDetail(null);
+    setSnack(lang==='pt'?'Dose apagada':'Dose deleted');
+  };
+
+  // ─── Add cat ───────────────────────────────────────────────
+  const addCat = async (info) => {
+    const id = `c${Date.now().toString(36).slice(-5)}`;
+    const newCat = mkCat(cats.length, info.name, { id, name: info.name, breed: info.breed });
+    await doSave(d => ({ ...d, households: { ...d.households, [homeKey]: { ...d.households[homeKey], cats: [...(d.households[homeKey].cats||[]), newCat] } } }));
+    setCatId(id);
+  };
+
+  // ─── Render gates ──────────────────────────────────────────
+  const themedShell = (inner) => (
+    <ThemeCtx.Provider value={theme}>
+      <LangCtx.Provider value={{ lang, t: (k, v) => tr(lang, k, v), setLang: setLangAll }}>
+        <div className="pw-app" style={{ background: theme.bg }}>
+          {inner}
+          <Snackbar message={snack} onClose={() => setSnack(null)} />
+        </div>
+      </LangCtx.Provider>
+    </ThemeCtx.Provider>
+  );
+
+  if (fbOn && !authReady) return themedShell(<LoadingGate message={lang==='pt'?'A carregar conta…':'Loading account…'} />);
+  if (fbOn && authReady && !user) return themedShell(<AuthGate onAuth={handleAuth} error={authError} />);
+  if (!data) return themedShell(<LoadingGate />);
+  if (!authed || !currentHome) {
+    return themedShell(
+      <HouseholdGate
+        user={user}
+        householdOptions={userHomes.map(id => ({ id, label: homeNames[id] || id }))}
+        onSubmit={submitHousehold}
+        onSignOut={signOut}
+      />
+    );
+  }
+  if (cats.length === 0) {
+    return themedShell(
+      <FirstCatGate
+        onSave={async ({ name, breed }) => {
+          const id = `c${Date.now().toString(36).slice(-5)}`;
+          await doSave(d => ({ ...d, households: { ...d.households, [homeKey]: { ...d.households[homeKey], cats: [mkCat(0, name, { id, name, breed })] } } }));
+          setCatId(id);
+        }}
+        onSignOut={signOut}
+      />
+    );
+  }
+  if (!currentCat) return themedShell(<LoadingGate />);
+
+  // ─── Build redesign-shaped state ───────────────────────────
+  const attacksRedesign = (currentCat.attacks || [])
+    .map(a => repoToRedesignAttack(a, profilesByUid))
+    .sort((x, y) => new Date(y.time) - new Date(x.time));
+  const inhalersRedesign = (currentCat.inhalerLogs || [])
+    .map(l => repoToRedesignInhaler(l, profilesByUid))
+    .sort((x, y) => new Date(y.time) - new Date(x.time));
+  const caregivers = profilesArr.length
+    ? profilesArr.map(p => ({ name: p.name, color: p.color || PCOLS[0] }))
+    : [{ name: user?.displayName || 'You', color: PCOLS[0] }];
+  const catObj = {
+    name: currentCat.name,
+    breed: currentCat.breed || 'Cat',
+    age: currentCat.age || 4,
+    weight: currentCat.weight || 4.5,
+    sex: currentCat.sex || '—',
+    birthday: currentCat.birthday || '—',
+  };
+  const weeklyData = buildWeeklyData(attacksRedesign, inhalersRedesign);
+  // Inhaler cleaning countdown
+  const ii = currentCat.inhalerInfo || DEFAULT_INHALER;
+  const lastCleaned = new Date(ii.lastCleaned || todayKey());
+  const daysSinceClean = Math.floor((Date.now() - lastCleaned.getTime()) / 86400000);
+  const interval = ii.cleaningIntervalDays || 14;
+  const nextCleanDays = Math.max(0, interval - daysSinceClean);
+  const nextCleanPct = Math.min(100, Math.max(0, (daysSinceClean / interval) * 100));
+  const medications = [
+    { name: `Inhaler · ${ii.dosage || '110mcg'}`, dose: '1 puff · twice daily', kind: 'Maintenance', color: '#1E9E94' },
+    { name: 'Ventolin', dose: '1 puff · as needed', kind: 'rescue', color: '#FF7E67' },
+  ];
+  const triggers = [
+    { name: 'Dust', icon: 'air', bg: 'rgba(63,111,191,0.12)', fg: '#3F6FBF', pct: 78, level: 'High' },
+    { name: 'Pollen', icon: 'grass', bg: 'rgba(52,170,72,0.12)', fg: '#34AA48', pct: 52, level: 'Med' },
+    { name: 'Smoke', icon: 'mode_heat', bg: 'rgba(212,142,26,0.12)', fg: '#D48E1A', pct: 30, level: 'Low' },
+  ];
+  const state = {
+    cat: catObj,
+    caregivers,
+    attacks: attacksRedesign,
+    inhalers: inhalersRedesign,
+    weeklyData,
+    triggers,
+    medications,
+    nextCleanDays,
+    nextCleanPct,
+  };
+
+  const openDetail = (kind, item) => setDetail({ kind, item });
+  const screen = (
+    tab === 'home' ? <HomeScreen state={state} openSheet={setSheet} navigate={setTab} openDetail={openDetail} /> :
+    tab === 'history' ? <HistoryScreen state={state} openSheet={setSheet} openDetail={openDetail} /> :
+    tab === 'insights' ? <InsightsScreen state={state} /> :
+    tab === 'inhaler' ? <InhalerScreen state={state} openSheet={setSheet} openDetail={openDetail} /> :
+    tab === 'profile' ? <ProfileScreen state={state} /> :
+    null
+  );
+
+  return themedShell(
+    <Fragment>
+      <div style={{ flex:1, overflow:'hidden', display:'flex', flexDirection:'column', position:'relative' }}>
+        {/* Header bar with household / cat / menu */}
+        <div style={{ position:'absolute', top:8, right:12, zIndex:30, display:'flex', gap:6 }}>
+          <button onClick={() => setShowHHMenu(true)} title={lang==='pt'?'Casa & gatos':'Household & cats'} style={{
+            display:'flex', alignItems:'center', gap:6, padding:'6px 10px', borderRadius:20,
+            background: theme.surfaceContainer, border:`1px solid ${theme.outlineVar}`, color: theme.onSurface,
+            fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'inherit',
+          }}>
+            <span>🐱</span><span>{currentCat.name}</span>
+            <Icon name="expand_more" size={16} />
+          </button>
+        </div>
+        {screen}
+      </div>
+      <BottomNav active={tab} onChange={setTab} navStyle={tw.navStyle} onFab={() => setSheet('chooser')} />
+
+      {/* Sheets */}
+      <AttackSheet open={sheet === 'attack'} onClose={() => setSheet(null)} onSave={saveAttack} cat={catObj} caregivers={caregivers} />
+      <InhalerSheet open={sheet === 'inhaler'} onClose={() => setSheet(null)} onSave={saveInhaler} cat={catObj} caregivers={caregivers} medications={medications} />
+      <ActionChooser open={sheet === 'chooser'} onClose={() => setSheet(null)} onPick={(k) => setSheet(k)} />
+
+      <AttackDetailSheet open={detail && detail.kind === 'attack'}
+        attack={detail && detail.kind === 'attack' ? detail.item : null}
+        caregivers={caregivers}
+        onClose={() => setDetail(null)}
+        onSave={updateAttack} onDelete={deleteAttack} />
+      <InhalerDetailSheet open={detail && detail.kind === 'inhaler'}
+        dose={detail && detail.kind === 'inhaler' ? detail.item : null}
+        caregivers={caregivers} medications={medications}
+        onClose={() => setDetail(null)}
+        onSave={updateInhaler} onDelete={deleteInhaler} />
+
+      <HouseholdMenu open={showHHMenu} onClose={() => setShowHHMenu(false)}
+        currentHome={currentHome} currentCat={currentCat} cats={cats}
+        onSwitchCat={setCatId} onAddCat={(name) => addCat({ name, breed: 'Cat' })}
+        onCreateInvite={createInvite}
+        onSwitchHome={() => { clearDeviceHome(deviceId); setActiveHome(null); setAuthed(false); setCatId(null); }}
+        onSignOut={signOut} />
+    </Fragment>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+
+  </script>
+
+</body>
+</html>
